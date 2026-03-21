@@ -1,12 +1,19 @@
 # Wordstat → Telegram Bot Configuration
+#
+# Secrets are loaded from environment variables (recommended):
+#   WORDSTAT_OAUTH_TOKEN, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
+#
+# For local development, copy .env.example → .env and fill in values.
+# On bothost.ru set these in the "Environment Variables" section of your bot settings.
+# Values below are used only as fallback when env vars are not set.
 
 wordstat:
-  oauth_token: "YOUR_YANDEX_OAUTH_TOKEN"
+  oauth_token: ""          # or set WORDSTAT_OAUTH_TOKEN env var
   base_url: "https://api.wordstat.yandex.net"
 
 telegram:
-  bot_token: "YOUR_TELEGRAM_BOT_TOKEN"
-  chat_id: "YOUR_CHAT_ID"  # numeric chat id, e.g. -1001234567890
+  bot_token: ""            # or set TELEGRAM_BOT_TOKEN env var
+  chat_id: ""              # or set TELEGRAM_CHAT_ID env var (numeric id, e.g. -1001234567890)
 
 # Analytics summary — compared current week vs previous week across query groups.
 # Each group aggregates total weekly counts for all its phrases.

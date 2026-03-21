@@ -8,12 +8,20 @@ Usage:
 """
 
 import argparse
+import os
 import sys
 import textwrap
 from datetime import date, timedelta
 
 import requests
 import yaml
+
+# Load .env file if present (local dev); silently skip if python-dotenv not installed
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 
 
 # ---------------------------------------------------------------------------
@@ -188,16 +196,27 @@ def _default_from_date(period: str) -> str:
 # ---------------------------------------------------------------------------
 
 def build_analytics_summary(client: WordstatClient, analytics: list[dict]) -> list[str]:
-    """Build weekly analytics summary comparing current week vs previous week."""
-    today = date.today()
-    current_monday = today - timedelta(days=today.weekday())
-    prev_monday = current_monday - timedelta(weeks=1)
-    current_sunday = current_monday + timedelta(days=6)
+    """Build weekly analytics summary comparing current week vs previous week.
 
-    week_end = min(current_sunday, today)
+    The Wordstat API requires toDate for period=weekly to be a Sunday.
+    We use the most recently completed Sunday as 'current week' and the
+    Sunday before that as 'previous week'.
+    """
+    today = date.today()
+    # Most recently completed Sunday: Mon=0 → 1 day back, Sun=6 → 0 days back
+    days_since_sunday = (today.weekday() + 1) % 7
+    last_sunday = today - timedelta(days=days_since_sunday)
+    prev_sunday = last_sunday - timedelta(weeks=1)
+
+    # Label: Mon–Sun of the most recently completed week
+    week_monday = last_sunday - timedelta(days=6)
     week_label = (
-        f"{current_monday.strftime('%d.%m.%Y')} \u2013 {week_end.strftime('%d.%m.%Y')}"
+        f"{week_monday.strftime('%d.%m.%Y')} \u2013 {last_sunday.strftime('%d.%m.%Y')}"
     )
+
+    # from_date: Monday of the previous week (ensures 2 weekly buckets are returned)
+    from_date = (prev_sunday - timedelta(days=6)).isoformat()
+    to_date = last_sunday.isoformat()  # must be a Sunday per API spec
 
     lines: list[str] = [f"📋 *Сводка за неделю {escape_md(week_label)}*", ""]
 
@@ -215,8 +234,8 @@ def build_analytics_summary(client: WordstatClient, analytics: list[dict]) -> li
                 items = client.dynamics(
                     phrase,
                     period="weekly",
-                    from_date=prev_monday.isoformat(),
-                    to_date=current_sunday.isoformat(),
+                    from_date=from_date,
+                    to_date=to_date,
                     regions=regions,
                     devices=devices,
                 )
@@ -320,16 +339,28 @@ def main() -> None:
     with open(args.config, encoding="utf-8") as fh:
         cfg = yaml.safe_load(fh)
 
-    wc_cfg = cfg["wordstat"]
-    tg_cfg = cfg["telegram"]
+    wc_cfg = cfg.get("wordstat", {})
+    tg_cfg = cfg.get("telegram", {})
     clusters = cfg.get("clusters", [])
+
+    # Secrets: env vars take priority over config.yaml values
+    oauth_token = os.environ.get("WORDSTAT_OAUTH_TOKEN") or wc_cfg.get("oauth_token", "")
+    bot_token = os.environ.get("TELEGRAM_BOT_TOKEN") or tg_cfg.get("bot_token", "")
+    chat_id = os.environ.get("TELEGRAM_CHAT_ID") or str(tg_cfg.get("chat_id", ""))
+
+    if not oauth_token:
+        print("ERROR: WORDSTAT_OAUTH_TOKEN not set (env var or config.yaml).", file=sys.stderr)
+        sys.exit(1)
+    if not args.dry_run and not bot_token:
+        print("ERROR: TELEGRAM_BOT_TOKEN not set (env var or config.yaml).", file=sys.stderr)
+        sys.exit(1)
 
     if not clusters:
         print("No clusters defined in config. Exiting.", file=sys.stderr)
         sys.exit(1)
 
     client = WordstatClient(
-        oauth_token=wc_cfg["oauth_token"],
+        oauth_token=oauth_token,
         base_url=wc_cfg.get("base_url", "https://api.wordstat.yandex.net"),
     )
 
@@ -354,7 +385,7 @@ def main() -> None:
         return
 
     print("Sending to Telegram…")
-    send_telegram(tg_cfg["bot_token"], str(tg_cfg["chat_id"]), report)
+    send_telegram(bot_token, chat_id, report)
     print("Done ✓")
 
 
