@@ -8,12 +8,20 @@ Usage:
 """
 
 import argparse
+import os
 import sys
 import textwrap
 from datetime import date, timedelta
 
 import requests
 import yaml
+
+# Load .env file if present (local dev); silently skip if python-dotenv not installed
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 
 
 # ---------------------------------------------------------------------------
@@ -184,6 +192,84 @@ def _default_from_date(period: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Weekly analytics summary
+# ---------------------------------------------------------------------------
+
+def build_analytics_summary(client: WordstatClient, analytics: list[dict]) -> list[str]:
+    """Build weekly analytics summary comparing current week vs previous week.
+
+    The Wordstat API requires toDate for period=weekly to be a Sunday.
+    We use the most recently completed Sunday as 'current week' and the
+    Sunday before that as 'previous week'.
+    """
+    today = date.today()
+    # Most recently completed Sunday: Mon=0 → 1 day back, Sun=6 → 0 days back
+    days_since_sunday = (today.weekday() + 1) % 7
+    last_sunday = today - timedelta(days=days_since_sunday)
+    prev_sunday = last_sunday - timedelta(weeks=1)
+
+    # Label: Mon–Sun of the most recently completed week
+    week_monday = last_sunday - timedelta(days=6)
+    week_label = (
+        f"{week_monday.strftime('%d.%m.%Y')} \u2013 {last_sunday.strftime('%d.%m.%Y')}"
+    )
+
+    # from_date: Monday of the previous week (ensures 2 weekly buckets are returned)
+    from_date = (prev_sunday - timedelta(days=6)).isoformat()
+    to_date = last_sunday.isoformat()  # must be a Sunday per API spec
+
+    lines: list[str] = [f"📋 *Сводка за неделю {escape_md(week_label)}*", ""]
+
+    for group in analytics:
+        name = group.get("name", "Группа")
+        phrases = group.get("phrases", [])
+        regions = group.get("regions") or []
+        devices = group.get("devices", ["all"])
+
+        current_total = 0
+        prev_total = 0
+
+        for phrase in phrases:
+            try:
+                items = client.dynamics(
+                    phrase,
+                    period="weekly",
+                    from_date=from_date,
+                    to_date=to_date,
+                    regions=regions,
+                    devices=devices,
+                )
+                if len(items) >= 2:
+                    prev_total += items[-2].get("count", 0)
+                    current_total += items[-1].get("count", 0)
+                elif len(items) == 1:
+                    current_total += items[-1].get("count", 0)
+            except Exception:  # noqa: BLE001
+                pass
+
+        delta = current_total - prev_total
+        if prev_total:
+            pct = delta / prev_total * 100
+            sign = "+" if delta >= 0 else ""
+            change_str = (
+                f"{sign}{delta:,} ({sign}{pct:.1f}%)"
+                .replace(",", "\u202f")
+            )
+        else:
+            change_str = "н/д"
+
+        lines += [
+            f"*{escape_md(name)}:*",
+            f"  Текущая неделя: {_fmt_number(current_total)}",
+            f"  Прошлая неделя: {_fmt_number(prev_total)}",
+            f"  Изменение: {escape_md(change_str)}",
+            "",
+        ]
+
+    return lines
+
+
+# ---------------------------------------------------------------------------
 # Telegram sender
 # ---------------------------------------------------------------------------
 
@@ -229,10 +315,14 @@ def escape_md(text: str) -> str:
 # Main
 # ---------------------------------------------------------------------------
 
-def build_report(clusters_data: list[list[str]]) -> str:
+def build_report(clusters_data: list[list[str]],
+                 summary_lines: list[str] | None = None) -> str:
     today = date.today().strftime("%d.%m.%Y")
     header = [f"📊 *Wordstat дайджест* — {escape_md(today)}", ""]
     lines: list[str] = header
+    if summary_lines:
+        lines += summary_lines
+        lines.append("")
     for section in clusters_data:
         lines += section
         lines.append("")
@@ -249,18 +339,36 @@ def main() -> None:
     with open(args.config, encoding="utf-8") as fh:
         cfg = yaml.safe_load(fh)
 
-    wc_cfg = cfg["wordstat"]
-    tg_cfg = cfg["telegram"]
+    wc_cfg = cfg.get("wordstat", {})
+    tg_cfg = cfg.get("telegram", {})
     clusters = cfg.get("clusters", [])
+
+    # Secrets: env vars take priority over config.yaml values
+    oauth_token = os.environ.get("WORDSTAT_OAUTH_TOKEN") or wc_cfg.get("oauth_token", "")
+    bot_token = os.environ.get("TELEGRAM_BOT_TOKEN") or tg_cfg.get("bot_token", "")
+    chat_id = os.environ.get("TELEGRAM_CHAT_ID") or str(tg_cfg.get("chat_id", ""))
+
+    if not oauth_token:
+        print("ERROR: WORDSTAT_OAUTH_TOKEN not set (env var or config.yaml).", file=sys.stderr)
+        sys.exit(1)
+    if not args.dry_run and not bot_token:
+        print("ERROR: TELEGRAM_BOT_TOKEN not set (env var or config.yaml).", file=sys.stderr)
+        sys.exit(1)
 
     if not clusters:
         print("No clusters defined in config. Exiting.", file=sys.stderr)
         sys.exit(1)
 
     client = WordstatClient(
-        oauth_token=wc_cfg["oauth_token"],
+        oauth_token=oauth_token,
         base_url=wc_cfg.get("base_url", "https://api.wordstat.yandex.net"),
     )
+
+    analytics = cfg.get("analytics", [])
+    summary_lines: list[str] = []
+    if analytics:
+        print(f"Building analytics summary ({len(analytics)} group(s))…")
+        summary_lines = build_analytics_summary(client, analytics)
 
     print(f"Processing {len(clusters)} cluster(s)…")
     sections: list[list[str]] = []
@@ -268,7 +376,7 @@ def main() -> None:
         print(f"  → {cluster.get('name', '?')}")
         sections.append(process_cluster(client, cluster))
 
-    report = build_report(sections)
+    report = build_report(sections, summary_lines)
 
     if args.dry_run:
         print("\n" + "=" * 60)
@@ -277,7 +385,7 @@ def main() -> None:
         return
 
     print("Sending to Telegram…")
-    send_telegram(tg_cfg["bot_token"], str(tg_cfg["chat_id"]), report)
+    send_telegram(bot_token, chat_id, report)
     print("Done ✓")
 
 
