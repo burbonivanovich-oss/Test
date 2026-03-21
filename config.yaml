@@ -1,0 +1,38 @@
+# Wordstat → Telegram Bot Configuration
+
+wordstat:
+  oauth_token: "YOUR_YANDEX_OAUTH_TOKEN"
+  base_url: "https://api.wordstat.yandex.net"
+
+telegram:
+  bot_token: "YOUR_TELEGRAM_BOT_TOKEN"
+  chat_id: "YOUR_CHAT_ID"  # numeric chat id, e.g. -1001234567890
+
+# Query clusters — each cluster produces one section in the Telegram summary.
+# Supported methods per cluster: topRequests | dynamics
+clusters:
+  - name: "Яндекс (топ запросов)"
+    method: topRequests
+    phrases:
+      - "яндекс"
+      - "yandex"
+    regions: [213]          # 213 = Moscow; omit for all regions
+    devices: ["all"]
+
+  - name: "Конкуренты (динамика)"
+    method: dynamics
+    phrases:
+      - "google поиск"
+      - "bing"
+    period: monthly         # monthly | weekly | daily
+    from_date: "2025-01-01" # first day of month for monthly
+    to_date: "2025-02-28"   # last day of month for monthly
+    regions: []             # empty = all regions
+    devices: ["all"]
+
+  - name: "SEO инструменты (регионы)"
+    method: regions
+    phrases:
+      - "вордстат"
+    region_type: "regions"  # cities | regions | all
+    devices: ["all"]
