@@ -8,6 +8,25 @@ telegram:
   bot_token: "YOUR_TELEGRAM_BOT_TOKEN"
   chat_id: "YOUR_CHAT_ID"  # numeric chat id, e.g. -1001234567890
 
+# Analytics summary — compared current week vs previous week across query groups.
+# Each group aggregates total weekly counts for all its phrases.
+analytics:
+  - name: "Коммерческие запросы"
+    phrases:
+      - "купить"
+      - "цена"
+      - "заказать"
+    regions: []        # empty = all regions
+    devices: ["all"]
+
+  - name: "Информационные запросы"
+    phrases:
+      - "как"
+      - "что такое"
+      - "зачем"
+    regions: []
+    devices: ["all"]
+
 # Query clusters — each cluster produces one section in the Telegram summary.
 # Supported methods per cluster: topRequests | dynamics
 clusters:

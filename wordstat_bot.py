@@ -184,6 +184,73 @@ def _default_from_date(period: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Weekly analytics summary
+# ---------------------------------------------------------------------------
+
+def build_analytics_summary(client: WordstatClient, analytics: list[dict]) -> list[str]:
+    """Build weekly analytics summary comparing current week vs previous week."""
+    today = date.today()
+    current_monday = today - timedelta(days=today.weekday())
+    prev_monday = current_monday - timedelta(weeks=1)
+    current_sunday = current_monday + timedelta(days=6)
+
+    week_end = min(current_sunday, today)
+    week_label = (
+        f"{current_monday.strftime('%d.%m.%Y')} \u2013 {week_end.strftime('%d.%m.%Y')}"
+    )
+
+    lines: list[str] = [f"📋 *Сводка за неделю {escape_md(week_label)}*", ""]
+
+    for group in analytics:
+        name = group.get("name", "Группа")
+        phrases = group.get("phrases", [])
+        regions = group.get("regions") or []
+        devices = group.get("devices", ["all"])
+
+        current_total = 0
+        prev_total = 0
+
+        for phrase in phrases:
+            try:
+                items = client.dynamics(
+                    phrase,
+                    period="weekly",
+                    from_date=prev_monday.isoformat(),
+                    to_date=current_sunday.isoformat(),
+                    regions=regions,
+                    devices=devices,
+                )
+                if len(items) >= 2:
+                    prev_total += items[-2].get("count", 0)
+                    current_total += items[-1].get("count", 0)
+                elif len(items) == 1:
+                    current_total += items[-1].get("count", 0)
+            except Exception:  # noqa: BLE001
+                pass
+
+        delta = current_total - prev_total
+        if prev_total:
+            pct = delta / prev_total * 100
+            sign = "+" if delta >= 0 else ""
+            change_str = (
+                f"{sign}{delta:,} ({sign}{pct:.1f}%)"
+                .replace(",", "\u202f")
+            )
+        else:
+            change_str = "н/д"
+
+        lines += [
+            f"*{escape_md(name)}:*",
+            f"  Текущая неделя: {_fmt_number(current_total)}",
+            f"  Прошлая неделя: {_fmt_number(prev_total)}",
+            f"  Изменение: {escape_md(change_str)}",
+            "",
+        ]
+
+    return lines
+
+
+# ---------------------------------------------------------------------------
 # Telegram sender
 # ---------------------------------------------------------------------------
 
@@ -229,10 +296,14 @@ def escape_md(text: str) -> str:
 # Main
 # ---------------------------------------------------------------------------
 
-def build_report(clusters_data: list[list[str]]) -> str:
+def build_report(clusters_data: list[list[str]],
+                 summary_lines: list[str] | None = None) -> str:
     today = date.today().strftime("%d.%m.%Y")
     header = [f"📊 *Wordstat дайджест* — {escape_md(today)}", ""]
     lines: list[str] = header
+    if summary_lines:
+        lines += summary_lines
+        lines.append("")
     for section in clusters_data:
         lines += section
         lines.append("")
@@ -262,13 +333,19 @@ def main() -> None:
         base_url=wc_cfg.get("base_url", "https://api.wordstat.yandex.net"),
     )
 
+    analytics = cfg.get("analytics", [])
+    summary_lines: list[str] = []
+    if analytics:
+        print(f"Building analytics summary ({len(analytics)} group(s))…")
+        summary_lines = build_analytics_summary(client, analytics)
+
     print(f"Processing {len(clusters)} cluster(s)…")
     sections: list[list[str]] = []
     for cluster in clusters:
         print(f"  → {cluster.get('name', '?')}")
         sections.append(process_cluster(client, cluster))
 
-    report = build_report(sections)
+    report = build_report(sections, summary_lines)
 
     if args.dry_run:
         print("\n" + "=" * 60)
