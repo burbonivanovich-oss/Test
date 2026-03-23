@@ -45,7 +45,12 @@ class WordstatClient:
     def _post(self, endpoint: str, payload: dict) -> dict:
         url = f"{self.base_url}{endpoint}"
         resp = self.session.post(url, json=payload, timeout=30)
-        resp.raise_for_status()
+        if not resp.ok:
+            body = resp.text[:300].strip()
+            raise requests.HTTPError(
+                f"{resp.status_code} {resp.reason} — {body}",
+                response=resp,
+            )
         return resp.json()
 
     def get_regions_tree(self) -> dict:
@@ -174,7 +179,7 @@ def process_cluster(client: WordstatClient, cluster: dict) -> list[str]:
                 section.append(f"  ⚠️ Неизвестный метод: {escape_html(method)}")
 
         except requests.HTTPError as exc:
-            section.append(f"  ❌ Ошибка API для «{escape_html(phrase)}»: {exc.response.status_code}")
+            section.append(f"  ❌ Ошибка API для «{escape_html(phrase)}»: {escape_html(str(exc))}")
         except Exception as exc:  # noqa: BLE001
             section.append(f"  ❌ Ошибка для «{escape_html(phrase)}»: {escape_html(str(exc))}")
 
@@ -260,7 +265,7 @@ def build_analytics_summary(client: WordstatClient, analytics: list[dict],
                     current_total += items[-1].get("count", 0)
                 # len(items) == 1: can't determine which week, skip
             except requests.HTTPError as exc:
-                errors.append(f"  ❌ Ошибка API для «{escape_html(phrase)}»: {exc.response.status_code}")
+                errors.append(f"  ❌ Ошибка API для «{escape_html(phrase)}»: {escape_html(str(exc))}")
             except Exception as exc:  # noqa: BLE001
                 errors.append(f"  ❌ Ошибка для «{escape_html(phrase)}»: {escape_html(str(exc))}")
 
