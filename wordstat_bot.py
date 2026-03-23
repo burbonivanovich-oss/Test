@@ -652,11 +652,17 @@ async def main() -> None:
     channel_monitor = None
     chan_cfg = cfg.get("channel_monitor", {})
     if chan_cfg.get("enabled"):
+        print("Initializing channel monitor…")
         channel_monitor = await create_monitor()
         if channel_monitor:
-            print("✓ Channel monitor initialized")
+            # Check if it's RSS or Telethon based on class name
+            monitor_type = type(channel_monitor).__name__
+            if "RSS" in monitor_type:
+                print("✓ Channel monitor initialized (RSS-based, no Telegram API auth needed)")
+            else:
+                print("✓ Channel monitor initialized (Telethon-based)")
         else:
-            print("⚠️  Channel monitor failed to initialize (missing credentials)")
+            print("⚠️  Channel monitor failed to initialize")
 
     # Store config and clients in bot_data for handlers to access
     app.bot_data["wordstat_client"] = client

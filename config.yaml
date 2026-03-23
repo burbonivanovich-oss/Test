@@ -87,9 +87,17 @@ clusters:
     devices: ["all"]
 
 # Channel monitoring — monitor Telegram channels for keyword mentions
-# Secrets: TELETHON_API_ID, TELETHON_API_HASH, TELETHON_SESSION_STRING env vars
-# To get API credentials: https://my.telegram.org/apps
-# To get session string: python channel_monitor_setup.py <api_id> <api_hash>
+#
+# Two methods available:
+#   1. Telethon (direct API) — faster, more reliable
+#      Requires: TELETHON_API_ID, TELETHON_API_HASH, TELETHON_SESSION_STRING env vars
+#      Setup: python channel_monitor_setup.py <api_id> <api_hash>
+#      Docs: https://my.telegram.org/apps
+#
+#   2. RSS-Hub (automatic fallback) — no authentication needed
+#      Works with public channels automatically
+#      Uses RSS feeds from RSSHub instances
+#      Automatically selected if Telethon credentials missing
 channel_monitor:
   enabled: true             # Set to true to enable channel monitoring
 

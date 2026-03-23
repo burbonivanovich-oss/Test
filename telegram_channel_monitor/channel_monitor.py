@@ -143,30 +143,35 @@ async def create_monitor(
     """
     Create and initialize a ChannelMonitor from environment or provided values.
 
+    Falls back to RSS-based monitoring if Telethon credentials are missing.
+
     Args:
         api_id: API ID (defaults to TELETHON_API_ID env var)
         api_hash: API hash (defaults to TELETHON_API_HASH env var)
         session_string: Session string (defaults to TELETHON_SESSION_STRING env var)
 
     Returns:
-        Initialized ChannelMonitor or None if credentials missing
+        Initialized ChannelMonitor (Telethon) or RSSChannelMonitor (RSS) or None
     """
     api_id = api_id or int(os.environ.get("TELETHON_API_ID", 0))
     api_hash = api_hash or os.environ.get("TELETHON_API_HASH", "")
     session_string = session_string or os.environ.get("TELETHON_SESSION_STRING", "")
 
-    if not api_id or not api_hash or not session_string:
-        print(
-            "ERROR: Missing Telethon credentials. Set TELETHON_API_ID, "
-            "TELETHON_API_HASH, and TELETHON_SESSION_STRING environment variables.",
-            file=sys.stderr,
-        )
-        return None
+    # Try Telethon first if credentials available
+    if api_id and api_hash and session_string:
+        monitor = ChannelMonitor(api_id, api_hash, session_string)
+        try:
+            await monitor.connect()
+            print("✅ Using Telethon for channel monitoring")
+            return monitor
+        except Exception as e:
+            print(f"⚠️  Telethon connection failed: {e}", file=sys.stderr)
 
-    monitor = ChannelMonitor(api_id, api_hash, session_string)
+    # Fall back to RSS-based monitoring
+    print("ℹ️  Falling back to RSS-based channel monitoring (no Telegram API auth needed)")
     try:
-        await monitor.connect()
-        return monitor
+        from .rss_channel_monitor import create_rss_monitor
+        return await create_rss_monitor()
     except Exception as e:
-        print(f"ERROR: Failed to connect to Telegram: {e}", file=sys.stderr)
+        print(f"ERROR: Failed to initialize any monitor: {e}", file=sys.stderr)
         return None

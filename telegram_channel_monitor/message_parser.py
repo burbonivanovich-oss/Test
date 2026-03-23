@@ -59,25 +59,42 @@ def get_message_preview(text: str, max_length: int = 300) -> str:
 
 def parse_message_data(msg, channel_name: str, channel_username: Optional[str]) -> dict:
     """
-    Extract relevant data from a Telethon Message object.
+    Extract relevant data from a message object.
+
+    Handles both Telethon Message objects and dict-based messages from RSS.
 
     Args:
-        msg: Telethon Message object
+        msg: Telethon Message object or dict with message data
         channel_name: Display name of the channel
         channel_username: Username of the channel (for link generation)
 
     Returns:
         Dictionary with message data
     """
+    # Handle dict-based messages (from RSS)
+    if isinstance(msg, dict):
+        msg_id = msg.get('id', 0)
+        text = msg.get('text', '')
+        date = msg.get('date')
+        link = msg.get('link') or get_message_link(channel_username, msg_id)
+        has_media = msg.get('has_media', False)
+    else:
+        # Handle Telethon Message objects
+        msg_id = msg.id
+        text = msg.text or ""
+        date = msg.date
+        link = get_message_link(channel_username, msg_id)
+        has_media = bool(msg.media) if hasattr(msg, 'media') else False
+
     return {
-        "message_id": msg.id,
+        "message_id": msg_id,
         "channel_name": channel_name,
         "channel_username": channel_username,
-        "link": get_message_link(channel_username, msg.id),
-        "text": msg.text or "",
-        "preview": get_message_preview(msg.text or ""),
-        "date": msg.date,
-        "has_media": bool(msg.media),
+        "link": link,
+        "text": text,
+        "preview": get_message_preview(text),
+        "date": date,
+        "has_media": has_media,
     }
 
 
