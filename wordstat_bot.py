@@ -243,6 +243,7 @@ def build_analytics_summary(client: WordstatClient, analytics: list[dict],
 
         current_total = 0
         prev_total = 0
+        errors: list[str] = []
 
         for phrase in phrases:
             try:
@@ -258,8 +259,10 @@ def build_analytics_summary(client: WordstatClient, analytics: list[dict],
                     prev_total += items[-2].get("count", 0)
                     current_total += items[-1].get("count", 0)
                 # len(items) == 1: can't determine which week, skip
-            except Exception:  # noqa: BLE001
-                pass
+            except requests.HTTPError as exc:
+                errors.append(f"  ❌ Ошибка API для «{escape_html(phrase)}»: {exc.response.status_code}")
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"  ❌ Ошибка для «{escape_html(phrase)}»: {escape_html(str(exc))}")
 
         delta = current_total - prev_total
         if prev_total:
@@ -277,8 +280,9 @@ def build_analytics_summary(client: WordstatClient, analytics: list[dict],
             f"  Текущая неделя: {_fmt_number(current_total)}",
             f"  Прошлая неделя: {_fmt_number(prev_total)}",
             f"  Изменение: {escape_html(change_str)}",
-            "",
         ]
+        lines += errors
+        lines.append("")
 
     return lines
 
