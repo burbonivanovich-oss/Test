@@ -30,47 +30,75 @@ telegram:
 # Analytics summary — compared current week vs previous week across query groups.
 # Each group aggregates total weekly counts for all its phrases.
 analytics:
-  - name: "Коммерческие запросы"
+  - name: "Информационные запросы"
     phrases:
-      - "купить"
-      - "цена"
-      - "заказать"
+      - "модуль тс пиот"
+      - "реестр тс пиот"
+      - "тс пиот"
+      - "тс пиот перенос"
+      - "тс пиот честный знак что это"
     regions: []        # empty = all regions
     devices: ["all"]
 
-  - name: "Информационные запросы"
+  - name: "Коммерческие запросы"
     phrases:
-      - "как"
-      - "что такое"
-      - "зачем"
+      - "внедрение тс пиот"
+      - "модуль тс пиот честный знак"
+      - "настройка тс пиот"
+      - "подключение к тс пиот"
+      - "работа с тс пиот"
+      - "тс пиот кабинет"
+      - "тс пиот как установить"
+      - "тс пиот кассы"
+      - "тс пиот купить"
+      - "тс пиот личный кабинет"
+      - "тс пиот регистрация"
+      - "тс пиот скачать"
+      - "тс пиот стоимость"
+      - "тс пиот цена"
+      - "установка тс пиот"
+    regions: []
+    devices: ["all"]
+
+  - name: "Брендовые (Контур Маркет)"
+    phrases:
+      - "тс пиот маркет"
+      - "тс пиот Контур"
+    regions: []
+    devices: ["all"]
+
+  - name: "Брендовые (конкуренты)"
+    phrases:
+      - "тс пиот 1с"
+      - "тс пиот мой склад"
+      - "тс пиот атол"
+      - "тс пиот сбис"
     regions: []
     devices: ["all"]
 
 # Query clusters — each cluster produces one section in the Telegram summary.
-# Supported methods per cluster: topRequests | dynamics
+# Supported methods per cluster: topRequests | dynamics | regions
 clusters:
-  - name: "Яндекс (топ запросов)"
+  - name: "ТС ПИОТ — топ запросов"
     method: topRequests
     phrases:
-      - "яндекс"
-      - "yandex"
-    regions: [213]          # 213 = Moscow; omit for all regions
-    devices: ["all"]
-
-  - name: "Конкуренты (динамика)"
-    method: dynamics
-    phrases:
-      - "google поиск"
-      - "bing"
-    period: monthly         # monthly | weekly | daily
-    from_date: "2025-01-01" # first day of month for monthly
-    to_date: "2025-02-28"   # last day of month for monthly
+      - "тс пиот"
     regions: []             # empty = all regions
     devices: ["all"]
 
-  - name: "SEO инструменты (регионы)"
+  - name: "Конкуренты (топ запросов)"
+    method: topRequests
+    phrases:
+      - "тс пиот 1с"
+      - "тс пиот мой склад"
+      - "тс пиот атол"
+      - "тс пиот сбис"
+    regions: []
+    devices: ["all"]
+
+  - name: "ТС ПИОТ — регионы"
     method: regions
     phrases:
-      - "вордстат"
+      - "тс пиот"
     region_type: "regions"  # cities | regions | all
     devices: ["all"]
