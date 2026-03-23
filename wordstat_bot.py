@@ -402,6 +402,7 @@ def main() -> None:
         oauth_token=oauth_token,
         base_url=wc_cfg.get("base_url", "https://api.wordstat.yandex.net"),
     )
+    print(f"Using chat_id={chat_id!r}")
 
     if not args.daemon:
         run_once(client, cfg, bot_token, chat_id, args.dry_run)
