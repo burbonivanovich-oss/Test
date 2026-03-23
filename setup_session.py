@@ -11,6 +11,8 @@ Stage 2: Verify code
 
 import asyncio
 import sys
+import json
+import os
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 
@@ -27,6 +29,9 @@ async def main():
     # Check if code is provided (stage 2)
     code = sys.argv[4] if len(sys.argv) > 4 else None
 
+    # File to store phone_code_hash
+    hash_file = ".telegram_hash"
+
     print("=" * 70)
     print("Telegram Channel Monitor - Session Setup")
     print("=" * 70)
@@ -42,6 +47,11 @@ async def main():
             print(f"📱 Sending code to {phone}...")
             print()
             result = await client.send_code_request(phone)
+
+            # Save phone_code_hash for later use
+            with open(hash_file, 'w') as f:
+                json.dump({'phone_code_hash': result.phone_code_hash}, f)
+
             print("✅ Code sent! Now run:")
             print()
             print(f"python3 setup_session.py {api_id} {api_hash} {phone} <CODE>")
@@ -53,8 +63,17 @@ async def main():
             print(f"🔐 Verifying code for {phone}...")
             print()
 
+            # Read phone_code_hash from file
+            if not os.path.exists(hash_file):
+                print(f"❌ Error: {hash_file} not found. Run Stage 1 first.")
+                sys.exit(1)
+
+            with open(hash_file, 'r') as f:
+                hash_data = json.load(f)
+            phone_code_hash = hash_data['phone_code_hash']
+
             try:
-                await client.sign_in(phone, code)
+                await client.sign_in(phone, code, phone_code_hash=phone_code_hash)
                 session_string = client.session.save()
 
                 print("✅ Success! Your session string:")
@@ -74,6 +93,10 @@ async def main():
                 me = await client.get_me()
                 print(f"Authenticated as: {me.first_name} (@{me.username or 'no username'})")
                 print()
+
+                # Clean up hash file
+                if os.path.exists(hash_file):
+                    os.remove(hash_file)
 
             except Exception as e:
                 print(f"❌ Code verification failed: {e}")
