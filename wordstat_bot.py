@@ -56,9 +56,13 @@ class WordstatClient:
     def get_regions_tree(self) -> dict:
         return self._post("/v1/getRegionsTree", {})
 
+    @staticmethod
+    def _fmt_phrase(phrase: str) -> str:
+        return "+".join(phrase.strip().split())
+
     def top_requests(self, phrase: str, regions: list[int] = None,
                      devices: list[str] = None) -> list[dict]:
-        payload: dict = {"phrase": phrase}
+        payload: dict = {"phrase": self._fmt_phrase(phrase)}
         if regions:
             payload["regions"] = regions
         if devices and devices != ["all"]:
@@ -68,7 +72,7 @@ class WordstatClient:
 
     def dynamics(self, phrase: str, period: str, from_date: str, to_date: str = None,
                  regions: list[int] = None, devices: list[str] = None) -> list[dict]:
-        payload: dict = {"phrase": phrase, "period": period, "fromDate": from_date}
+        payload: dict = {"phrase": self._fmt_phrase(phrase), "period": period, "fromDate": from_date}
         if to_date:
             payload["toDate"] = to_date
         if regions:
@@ -80,7 +84,7 @@ class WordstatClient:
 
     def regions(self, phrase: str, region_type: str = "all",
                 devices: list[str] = None) -> list[dict]:
-        payload: dict = {"phrase": phrase, "regionType": region_type}
+        payload: dict = {"phrase": self._fmt_phrase(phrase), "regionType": region_type}
         if devices and devices != ["all"]:
             payload["devices"] = devices
         data = self._post("/v1/regions", payload)
