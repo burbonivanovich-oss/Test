@@ -286,6 +286,8 @@ def send_telegram(bot_token: str, chat_id: str, text: str) -> None:
             "parse_mode": "MarkdownV2",
             "disable_web_page_preview": True,
         }, timeout=30)
+        if not resp.ok:
+            print(f"Telegram error {resp.status_code}: {resp.text}", file=sys.stderr)
         resp.raise_for_status()
 
 
