@@ -17,9 +17,10 @@ async def main():
     channels = [
         {"name": "РИА Новости", "username": "@rian_ru"},
         {"name": "ТАСС", "username": "@tass_agency"},
+        {"name": "Контур Маркет", "username": "@konturmarket"},
     ]
-    keywords = ["тс пиот", "ТС ПИОТ"]
-    hours_lookback = 24
+    keywords = ["тс пиот", "ТС ПИОТ", "маркет"]
+    hours_lookback = 48
 
     # Parse CLI args
     if len(sys.argv) > 1:
