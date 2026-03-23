@@ -5,9 +5,11 @@ Collects data from Yandex Wordstat API across query clusters and sends a digest 
 
 Usage:
     python wordstat_bot.py [--config config.yaml]
+    python wordstat_bot.py --daemon    # Run on schedule
 """
 
 import argparse
+import asyncio
 import os
 import sys
 import textwrap
@@ -16,6 +18,8 @@ from datetime import date, datetime, timedelta
 
 import requests
 import yaml
+from telegram import Update
+from telegram.ext import Application, CommandHandler, ContextTypes
 
 # Load .env file if present (local dev); silently skip if python-dotenv not installed
 try:
@@ -273,7 +277,7 @@ def build_analytics_summary(client: WordstatClient, analytics: list[dict]) -> li
 # Telegram sender
 # ---------------------------------------------------------------------------
 
-def send_telegram(bot_token: str, chat_id: str, text: str) -> None:
+async def send_telegram(bot_token: str, chat_id: str, text: str) -> None:
     url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
     # Telegram has a 4096-char limit per message; split if needed
     chunks = _split_message(text, limit=4000)
@@ -311,7 +315,7 @@ def escape_html(text: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Main
+# Report builder
 # ---------------------------------------------------------------------------
 
 def build_report(clusters_data: list[list[str]],
@@ -328,51 +332,96 @@ def build_report(clusters_data: list[list[str]],
     return "\n".join(lines)
 
 
-def _next_run_utc(weekday: int, hour: int, minute: int) -> datetime:
-    """Return next UTC datetime matching the given weekday/hour/minute."""
-    now = datetime.utcnow()
-    days_ahead = (weekday - now.weekday()) % 7
-    candidate = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
-    if days_ahead == 0 and now >= candidate:
-        days_ahead = 7
-    return candidate + timedelta(days=days_ahead)
-
-
-def run_once(client: WordstatClient, cfg: dict, bot_token: str, chat_id: str,
-             dry_run: bool) -> None:
+async def generate_report(client: WordstatClient, cfg: dict) -> str:
+    """Generate the report text without sending."""
     clusters = cfg.get("clusters", [])
     analytics = cfg.get("analytics", [])
 
     summary_lines: list[str] = []
     if analytics:
-        print(f"Building analytics summary ({len(analytics)} group(s))…")
         summary_lines = build_analytics_summary(client, analytics)
 
-    print(f"Processing {len(clusters)} cluster(s)…")
     sections: list[list[str]] = []
     for cluster in clusters:
-        print(f"  → {cluster.get('name', '?')}")
         sections.append(process_cluster(client, cluster))
 
-    report = build_report(sections, summary_lines)
+    return build_report(sections, summary_lines)
 
-    if dry_run:
-        print("\n" + "=" * 60)
-        print(report.replace("\\", ""))
+
+# ---------------------------------------------------------------------------
+# Telegram command handlers
+# ---------------------------------------------------------------------------
+
+async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /report command."""
+    client: WordstatClient = context.bot_data.get("wordstat_client")
+    cfg: dict = context.bot_data.get("config")
+
+    if not client or not cfg:
+        await update.message.reply_text("❌ Бот не инициализирован. Попробуйте позже.")
         return
 
-    print("Sending to Telegram…")
-    send_telegram(bot_token, chat_id, report)
-    print("Done ✓")
+    try:
+        await update.message.reply_text("⏳ Подготавливаю отчет...")
+        report_text = await generate_report(client, cfg)
+        await send_telegram(context.bot.token, str(update.effective_chat.id), report_text)
+    except Exception as exc:
+        await update.message.reply_text(f"❌ Ошибка: {escape_html(str(exc))}")
 
 
-def main() -> None:
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /start command."""
+    await update.message.reply_text(
+        "👋 Привет! Я — Wordstat дайджест бот.\n\n"
+        "Используй /report для получения отчета.\n\n"
+        "По расписанию я отправляю отчеты в группу автоматически."
+    )
+
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /help command."""
+    await update.message.reply_text(
+        "📖 <b>Доступные команды:</b>\n\n"
+        "/report — получить отчет сейчас\n"
+        "/start — справка\n"
+        "/help — эта справка",
+        parse_mode="HTML"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Scheduled report (daemon mode)
+# ---------------------------------------------------------------------------
+
+async def schedule_report(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Send scheduled report."""
+    client: WordstatClient = context.bot_data.get("wordstat_client")
+    cfg: dict = context.bot_data.get("config")
+    chat_id: str = context.bot_data.get("chat_id")
+
+    if not client or not cfg or not chat_id:
+        return
+
+    try:
+        print(f"[{datetime.utcnow().strftime('%H:%M:%S')}] Sending scheduled report…")
+        report_text = await generate_report(client, cfg)
+        await send_telegram(context.bot.token, chat_id, report_text)
+        print("Done ✓")
+    except Exception as exc:
+        print(f"ERROR during scheduled run: {exc}", file=sys.stderr)
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+async def main() -> None:
     parser = argparse.ArgumentParser(description="Wordstat → Telegram digest")
     parser.add_argument("--config", default="config.yaml", help="Path to config file")
     parser.add_argument("--dry-run", action="store_true",
                         help="Print report to stdout, don't send to Telegram")
     parser.add_argument("--daemon", action="store_true",
-                        help="Run on schedule (for bothost.ru / long-running process)")
+                        help="Run with polling and scheduled reports")
     args = parser.parse_args()
 
     with open(args.config, encoding="utf-8") as fh:
@@ -402,30 +451,59 @@ def main() -> None:
         oauth_token=oauth_token,
         base_url=wc_cfg.get("base_url", "https://api.wordstat.yandex.net"),
     )
-    print(f"Using chat_id={chat_id!r}")
 
-    if not args.daemon:
-        run_once(client, cfg, bot_token, chat_id, args.dry_run)
+    if args.dry_run:
+        report_text = await generate_report(client, cfg)
+        print("\n" + "=" * 60)
+        print(report_text.replace("\\", ""))
         return
 
-    # Daemon mode: sleep until scheduled time, then run, repeat
+    if not args.daemon:
+        print("No --daemon flag. Run with --daemon for polling mode.")
+        return
+
+    # Daemon mode: polling + scheduled reports
+    print(f"Starting bot with polling…")
+    print(f"Using chat_id={chat_id!r}")
+
+    app = Application.builder().token(bot_token).build()
+
+    # Store config and client in bot_data for handlers to access
+    app.bot_data["wordstat_client"] = client
+    app.bot_data["config"] = cfg
+    app.bot_data["chat_id"] = chat_id
+
+    # Register command handlers
+    app.add_handler(CommandHandler("start", start_command))
+    app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("report", report_command))
+
+    # Schedule reports
     sched = cfg.get("schedule", {})
-    weekday = int(sched.get("weekday", 0))   # 0=Monday … 6=Sunday
+    weekday = int(sched.get("weekday", 0))  # 0=Monday … 6=Sunday
     hour = int(sched.get("hour", 7))
     minute = int(sched.get("minute", 0))
+    print(f"Scheduled report: every weekday={weekday} at {hour:02d}:{minute:02d} UTC")
 
-    print(f"Daemon mode: will run every weekday={weekday} at {hour:02d}:{minute:02d} UTC")
-    while True:
-        next_run = _next_run_utc(weekday, hour, minute)
-        wait_secs = (next_run - datetime.utcnow()).total_seconds()
-        print(f"Next run: {next_run.strftime('%Y-%m-%d %H:%M')} UTC "
-              f"(in {wait_secs / 3600:.1f}h)")
-        time.sleep(wait_secs)
-        try:
-            run_once(client, cfg, bot_token, chat_id, args.dry_run)
-        except Exception as exc:  # noqa: BLE001
-            print(f"ERROR during run: {exc}", file=sys.stderr)
+    job_queue = app.job_queue
+    job_queue.run_daily(schedule_report, time=datetime.min.replace(hour=hour, minute=minute).time(),
+                       days=(weekday,), name="scheduled_report")
+
+    # Start polling
+    print("Bot is listening for commands…")
+    await app.initialize()
+    await app.start()
+    await app.updater.start_polling(allowed_updates=["message", "channel_post"])
+
+    try:
+        await asyncio.Event().wait()  # run forever
+    except KeyboardInterrupt:
+        print("\nShutting down…")
+    finally:
+        await app.updater.stop()
+        await app.stop()
+        await app.shutdown()
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
