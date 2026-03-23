@@ -87,29 +87,28 @@ def _fmt_number(n: int | float) -> str:
 
 
 def format_top_requests(phrase: str, items: list[dict], top_n: int = 10) -> list[str]:
-    lines = [f"🔍 *{escape_md(phrase)}* — топ запросов \(30 дней\)"]
+    lines = [f"🔍 <b>{escape_html(phrase)}</b> — топ запросов (30 дней)"]
     if not items:
-        lines.append("  _нет данных_")
+        lines.append("  <i>нет данных</i>")
         return lines
     for i, item in enumerate(items[:top_n], 1):
         count = _fmt_number(item.get("count", 0))
-        kw = escape_md(item.get("phrase", "—"))
-        lines.append(f"  {i}\\. {kw} — {count}")
+        kw = escape_html(item.get("phrase", "—"))
+        lines.append(f"  {i}. {kw} — {count}")
     return lines
 
 
 def format_dynamics(phrase: str, items: list[dict]) -> list[str]:
-    lines = [f"📈 *{escape_md(phrase)}* — динамика"]
+    lines = [f"📈 <b>{escape_html(phrase)}</b> — динамика"]
     if not items:
-        lines.append("  _нет данных_")
+        lines.append("  <i>нет данных</i>")
         return lines
     # Show last 6 data points
     for item in items[-6:]:
         d = item.get("date", "?")
         count = _fmt_number(item.get("count", 0))
         share = item.get("share", 0)
-        share_str = escape_md(f"{share:.4f}")
-        lines.append(f"  {escape_md(d)}: {count} \\({share_str}%\\)")
+        lines.append(f"  {d}: {count} ({share:.4f}%)")
     # Trend: compare first vs last period
     if len(items) >= 2:
         first_count = items[0].get("count", 0)
@@ -117,22 +116,21 @@ def format_dynamics(phrase: str, items: list[dict]) -> list[str]:
         if first_count:
             delta = (last_count - first_count) / first_count * 100
             arrow = "↑" if delta >= 0 else "↓"
-            delta_str = escape_md(f"{abs(delta):.1f}")
-            lines.append(f"  Тренд: {arrow} {delta_str}% к началу периода")
+            lines.append(f"  Тренд: {arrow} {abs(delta):.1f}% к началу периода")
     return lines
 
 
 def format_regions(phrase: str, items: list[dict], top_n: int = 5) -> list[str]:
-    lines = [f"🗺 *{escape_md(phrase)}* — топ регионов \(30 дней\)"]
+    lines = [f"🗺 <b>{escape_html(phrase)}</b> — топ регионов (30 дней)"]
     if not items:
-        lines.append("  _нет данных_")
+        lines.append("  <i>нет данных</i>")
         return lines
     sorted_items = sorted(items, key=lambda x: x.get("count", 0), reverse=True)
     for item in sorted_items[:top_n]:
         count = _fmt_number(item.get("count", 0))
-        rid = item.get("regionId", "?")
-        affinity = escape_md(str(item.get("affinityIndex", 0)))
-        lines.append(f"  \\[{rid}\\] {count} запросов, affinity {affinity}%")
+        rid = escape_html(str(item.get("regionId", "?")))
+        affinity = item.get("affinityIndex", 0)
+        lines.append(f"  [{rid}] {count} запросов, affinity {affinity}%")
     return lines
 
 
@@ -147,7 +145,7 @@ def process_cluster(client: WordstatClient, cluster: dict) -> list[str]:
     regions = cluster.get("regions") or []
     devices = cluster.get("devices", ["all"])
 
-    section: list[str] = [f"*━━ {escape_md(name)} ━━*"]
+    section: list[str] = [f"<b>━━ {escape_html(name)} ━━</b>"]
 
     for phrase in phrases:
         try:
@@ -169,12 +167,12 @@ def process_cluster(client: WordstatClient, cluster: dict) -> list[str]:
                 section += format_regions(phrase, items)
 
             else:
-                section.append(f"  ⚠️ Неизвестный метод: {escape_md(method)}")
+                section.append(f"  ⚠️ Неизвестный метод: {escape_html(method)}")
 
         except requests.HTTPError as exc:
-            section.append(f"  ❌ Ошибка API для «{escape_md(phrase)}»: {exc.response.status_code}")
+            section.append(f"  ❌ Ошибка API для «{escape_html(phrase)}»: {exc.response.status_code}")
         except Exception as exc:  # noqa: BLE001
-            section.append(f"  ❌ Ошибка для «{escape_md(phrase)}»: {escape_md(str(exc))}")
+            section.append(f"  ❌ Ошибка для «{escape_html(phrase)}»: {escape_html(str(exc))}")
 
     return section
 
@@ -221,7 +219,7 @@ def build_analytics_summary(client: WordstatClient, analytics: list[dict]) -> li
     from_date = (prev_sunday - timedelta(days=6)).isoformat()
     to_date = last_sunday.isoformat()  # must be a Sunday per API spec
 
-    lines: list[str] = [f"📋 *Сводка за неделю {escape_md(week_label)}*", ""]
+    lines: list[str] = [f"📋 <b>Сводка за неделю {escape_html(week_label)}</b>", ""]
 
     for group in analytics:
         name = group.get("name", "Группа")
@@ -261,10 +259,10 @@ def build_analytics_summary(client: WordstatClient, analytics: list[dict]) -> li
             change_str = "н/д"
 
         lines += [
-            f"*{escape_md(name)}:*",
+            f"<b>{escape_html(name)}:</b>",
             f"  Текущая неделя: {_fmt_number(current_total)}",
             f"  Прошлая неделя: {_fmt_number(prev_total)}",
-            f"  Изменение: {escape_md(change_str)}",
+            f"  Изменение: {escape_html(change_str)}",
             "",
         ]
 
@@ -283,7 +281,7 @@ def send_telegram(bot_token: str, chat_id: str, text: str) -> None:
         resp = requests.post(url, json={
             "chat_id": chat_id,
             "text": chunk,
-            "parse_mode": "MarkdownV2",
+            "parse_mode": "HTML",
             "disable_web_page_preview": True,
         }, timeout=30)
         if not resp.ok:
@@ -307,12 +305,9 @@ def _split_message(text: str, limit: int = 4000) -> list[str]:
     return chunks
 
 
-def escape_md(text: str) -> str:
-    """Escape special chars for Telegram MarkdownV2 (outside bold/italic markers)."""
-    special = r"\_*[]()~`>#+-=|{}.!"
-    for ch in special:
-        text = text.replace(ch, f"\\{ch}")
-    return text
+def escape_html(text: str) -> str:
+    """Escape special chars for Telegram HTML mode."""
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 # ---------------------------------------------------------------------------
@@ -322,7 +317,7 @@ def escape_md(text: str) -> str:
 def build_report(clusters_data: list[list[str]],
                  summary_lines: list[str] | None = None) -> str:
     today = date.today().strftime("%d.%m.%Y")
-    header = [f"📊 *Wordstat дайджест* — {escape_md(today)}", ""]
+    header = [f"📊 <b>Wordstat дайджест</b> — {escape_html(today)}", ""]
     lines: list[str] = header
     if summary_lines:
         lines += summary_lines
