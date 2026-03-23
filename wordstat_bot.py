@@ -5,9 +5,11 @@ Collects data from Yandex Wordstat API across query clusters and sends a digest 
 
 Usage:
     python wordstat_bot.py [--config config.yaml]
+    python wordstat_bot.py --daemon    # Run on schedule
 """
 
 import argparse
+import asyncio
 import os
 import sys
 import textwrap
@@ -16,6 +18,8 @@ from datetime import date, datetime, timedelta
 
 import requests
 import yaml
+from telegram import Update
+from telegram.ext import Application, CommandHandler, ContextTypes
 
 # Load .env file if present (local dev); silently skip if python-dotenv not installed
 try:
@@ -87,29 +91,28 @@ def _fmt_number(n: int | float) -> str:
 
 
 def format_top_requests(phrase: str, items: list[dict], top_n: int = 10) -> list[str]:
-    lines = [f"🔍 *{escape_md(phrase)}* — топ запросов \(30 дней\)"]
+    lines = [f"🔍 <b>{escape_html(phrase)}</b> — топ запросов (30 дней)"]
     if not items:
-        lines.append("  _нет данных_")
+        lines.append("  <i>нет данных</i>")
         return lines
     for i, item in enumerate(items[:top_n], 1):
         count = _fmt_number(item.get("count", 0))
-        kw = escape_md(item.get("phrase", "—"))
-        lines.append(f"  {i}\\. {kw} — {count}")
+        kw = escape_html(item.get("phrase", "—"))
+        lines.append(f"  {i}. {kw} — {count}")
     return lines
 
 
 def format_dynamics(phrase: str, items: list[dict]) -> list[str]:
-    lines = [f"📈 *{escape_md(phrase)}* — динамика"]
+    lines = [f"📈 <b>{escape_html(phrase)}</b> — динамика"]
     if not items:
-        lines.append("  _нет данных_")
+        lines.append("  <i>нет данных</i>")
         return lines
     # Show last 6 data points
     for item in items[-6:]:
         d = item.get("date", "?")
         count = _fmt_number(item.get("count", 0))
         share = item.get("share", 0)
-        share_str = escape_md(f"{share:.4f}")
-        lines.append(f"  {escape_md(d)}: {count} \\({share_str}%\\)")
+        lines.append(f"  {d}: {count} ({share:.4f}%)")
     # Trend: compare first vs last period
     if len(items) >= 2:
         first_count = items[0].get("count", 0)
@@ -117,22 +120,21 @@ def format_dynamics(phrase: str, items: list[dict]) -> list[str]:
         if first_count:
             delta = (last_count - first_count) / first_count * 100
             arrow = "↑" if delta >= 0 else "↓"
-            delta_str = escape_md(f"{abs(delta):.1f}")
-            lines.append(f"  Тренд: {arrow} {delta_str}% к началу периода")
+            lines.append(f"  Тренд: {arrow} {abs(delta):.1f}% к началу периода")
     return lines
 
 
 def format_regions(phrase: str, items: list[dict], top_n: int = 5) -> list[str]:
-    lines = [f"🗺 *{escape_md(phrase)}* — топ регионов \(30 дней\)"]
+    lines = [f"🗺 <b>{escape_html(phrase)}</b> — топ регионов (30 дней)"]
     if not items:
-        lines.append("  _нет данных_")
+        lines.append("  <i>нет данных</i>")
         return lines
     sorted_items = sorted(items, key=lambda x: x.get("count", 0), reverse=True)
     for item in sorted_items[:top_n]:
         count = _fmt_number(item.get("count", 0))
-        rid = item.get("regionId", "?")
-        affinity = escape_md(str(item.get("affinityIndex", 0)))
-        lines.append(f"  \\[{rid}\\] {count} запросов, affinity {affinity}%")
+        rid = escape_html(str(item.get("regionId", "?")))
+        affinity = item.get("affinityIndex", 0)
+        lines.append(f"  [{rid}] {count} запросов, affinity {affinity}%")
     return lines
 
 
@@ -147,7 +149,7 @@ def process_cluster(client: WordstatClient, cluster: dict) -> list[str]:
     regions = cluster.get("regions") or []
     devices = cluster.get("devices", ["all"])
 
-    section: list[str] = [f"*━━ {escape_md(name)} ━━*"]
+    section: list[str] = [f"<b>━━ {escape_html(name)} ━━</b>"]
 
     for phrase in phrases:
         try:
@@ -169,12 +171,12 @@ def process_cluster(client: WordstatClient, cluster: dict) -> list[str]:
                 section += format_regions(phrase, items)
 
             else:
-                section.append(f"  ⚠️ Неизвестный метод: {escape_md(method)}")
+                section.append(f"  ⚠️ Неизвестный метод: {escape_html(method)}")
 
         except requests.HTTPError as exc:
-            section.append(f"  ❌ Ошибка API для «{escape_md(phrase)}»: {exc.response.status_code}")
+            section.append(f"  ❌ Ошибка API для «{escape_html(phrase)}»: {exc.response.status_code}")
         except Exception as exc:  # noqa: BLE001
-            section.append(f"  ❌ Ошибка для «{escape_md(phrase)}»: {escape_md(str(exc))}")
+            section.append(f"  ❌ Ошибка для «{escape_html(phrase)}»: {escape_html(str(exc))}")
 
     return section
 
@@ -221,7 +223,7 @@ def build_analytics_summary(client: WordstatClient, analytics: list[dict]) -> li
     from_date = (prev_sunday - timedelta(days=6)).isoformat()
     to_date = last_sunday.isoformat()  # must be a Sunday per API spec
 
-    lines: list[str] = [f"📋 *Сводка за неделю {escape_md(week_label)}*", ""]
+    lines: list[str] = [f"📋 <b>Сводка за неделю {escape_html(week_label)}</b>", ""]
 
     for group in analytics:
         name = group.get("name", "Группа")
@@ -261,10 +263,10 @@ def build_analytics_summary(client: WordstatClient, analytics: list[dict]) -> li
             change_str = "н/д"
 
         lines += [
-            f"*{escape_md(name)}:*",
+            f"<b>{escape_html(name)}:</b>",
             f"  Текущая неделя: {_fmt_number(current_total)}",
             f"  Прошлая неделя: {_fmt_number(prev_total)}",
-            f"  Изменение: {escape_md(change_str)}",
+            f"  Изменение: {escape_html(change_str)}",
             "",
         ]
 
@@ -275,7 +277,7 @@ def build_analytics_summary(client: WordstatClient, analytics: list[dict]) -> li
 # Telegram sender
 # ---------------------------------------------------------------------------
 
-def send_telegram(bot_token: str, chat_id: str, text: str) -> None:
+async def send_telegram(bot_token: str, chat_id: str, text: str) -> None:
     url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
     # Telegram has a 4096-char limit per message; split if needed
     chunks = _split_message(text, limit=4000)
@@ -283,7 +285,7 @@ def send_telegram(bot_token: str, chat_id: str, text: str) -> None:
         resp = requests.post(url, json={
             "chat_id": chat_id,
             "text": chunk,
-            "parse_mode": "MarkdownV2",
+            "parse_mode": "HTML",
             "disable_web_page_preview": True,
         }, timeout=30)
         if not resp.ok:
@@ -307,22 +309,19 @@ def _split_message(text: str, limit: int = 4000) -> list[str]:
     return chunks
 
 
-def escape_md(text: str) -> str:
-    """Escape special chars for Telegram MarkdownV2 (outside bold/italic markers)."""
-    special = r"\_*[]()~`>#+-=|{}.!"
-    for ch in special:
-        text = text.replace(ch, f"\\{ch}")
-    return text
+def escape_html(text: str) -> str:
+    """Escape special chars for Telegram HTML mode."""
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 # ---------------------------------------------------------------------------
-# Main
+# Report builder
 # ---------------------------------------------------------------------------
 
 def build_report(clusters_data: list[list[str]],
                  summary_lines: list[str] | None = None) -> str:
     today = date.today().strftime("%d.%m.%Y")
-    header = [f"📊 *Wordstat дайджест* — {escape_md(today)}", ""]
+    header = [f"📊 <b>Wordstat дайджест</b> — {escape_html(today)}", ""]
     lines: list[str] = header
     if summary_lines:
         lines += summary_lines
@@ -333,51 +332,96 @@ def build_report(clusters_data: list[list[str]],
     return "\n".join(lines)
 
 
-def _next_run_utc(weekday: int, hour: int, minute: int) -> datetime:
-    """Return next UTC datetime matching the given weekday/hour/minute."""
-    now = datetime.utcnow()
-    days_ahead = (weekday - now.weekday()) % 7
-    candidate = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
-    if days_ahead == 0 and now >= candidate:
-        days_ahead = 7
-    return candidate + timedelta(days=days_ahead)
-
-
-def run_once(client: WordstatClient, cfg: dict, bot_token: str, chat_id: str,
-             dry_run: bool) -> None:
+async def generate_report(client: WordstatClient, cfg: dict) -> str:
+    """Generate the report text without sending."""
     clusters = cfg.get("clusters", [])
     analytics = cfg.get("analytics", [])
 
     summary_lines: list[str] = []
     if analytics:
-        print(f"Building analytics summary ({len(analytics)} group(s))…")
         summary_lines = build_analytics_summary(client, analytics)
 
-    print(f"Processing {len(clusters)} cluster(s)…")
     sections: list[list[str]] = []
     for cluster in clusters:
-        print(f"  → {cluster.get('name', '?')}")
         sections.append(process_cluster(client, cluster))
 
-    report = build_report(sections, summary_lines)
+    return build_report(sections, summary_lines)
 
-    if dry_run:
-        print("\n" + "=" * 60)
-        print(report.replace("\\", ""))
+
+# ---------------------------------------------------------------------------
+# Telegram command handlers
+# ---------------------------------------------------------------------------
+
+async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /report command."""
+    client: WordstatClient = context.bot_data.get("wordstat_client")
+    cfg: dict = context.bot_data.get("config")
+
+    if not client or not cfg:
+        await update.message.reply_text("❌ Бот не инициализирован. Попробуйте позже.")
         return
 
-    print("Sending to Telegram…")
-    send_telegram(bot_token, chat_id, report)
-    print("Done ✓")
+    try:
+        await update.message.reply_text("⏳ Подготавливаю отчет...")
+        report_text = await generate_report(client, cfg)
+        await send_telegram(context.bot.token, str(update.effective_chat.id), report_text)
+    except Exception as exc:
+        await update.message.reply_text(f"❌ Ошибка: {escape_html(str(exc))}")
 
 
-def main() -> None:
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /start command."""
+    await update.message.reply_text(
+        "👋 Привет! Я — Wordstat дайджест бот.\n\n"
+        "Используй /report для получения отчета.\n\n"
+        "По расписанию я отправляю отчеты в группу автоматически."
+    )
+
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /help command."""
+    await update.message.reply_text(
+        "📖 <b>Доступные команды:</b>\n\n"
+        "/report — получить отчет сейчас\n"
+        "/start — справка\n"
+        "/help — эта справка",
+        parse_mode="HTML"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Scheduled report (daemon mode)
+# ---------------------------------------------------------------------------
+
+async def schedule_report(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Send scheduled report."""
+    client: WordstatClient = context.bot_data.get("wordstat_client")
+    cfg: dict = context.bot_data.get("config")
+    chat_id: str = context.bot_data.get("chat_id")
+
+    if not client or not cfg or not chat_id:
+        return
+
+    try:
+        print(f"[{datetime.utcnow().strftime('%H:%M:%S')}] Sending scheduled report…")
+        report_text = await generate_report(client, cfg)
+        await send_telegram(context.bot.token, chat_id, report_text)
+        print("Done ✓")
+    except Exception as exc:
+        print(f"ERROR during scheduled run: {exc}", file=sys.stderr)
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+async def main() -> None:
     parser = argparse.ArgumentParser(description="Wordstat → Telegram digest")
     parser.add_argument("--config", default="config.yaml", help="Path to config file")
     parser.add_argument("--dry-run", action="store_true",
                         help="Print report to stdout, don't send to Telegram")
     parser.add_argument("--daemon", action="store_true",
-                        help="Run on schedule (for bothost.ru / long-running process)")
+                        help="Run with polling and scheduled reports")
     args = parser.parse_args()
 
     with open(args.config, encoding="utf-8") as fh:
@@ -408,28 +452,58 @@ def main() -> None:
         base_url=wc_cfg.get("base_url", "https://api.wordstat.yandex.net"),
     )
 
-    if not args.daemon:
-        run_once(client, cfg, bot_token, chat_id, args.dry_run)
+    if args.dry_run:
+        report_text = await generate_report(client, cfg)
+        print("\n" + "=" * 60)
+        print(report_text.replace("\\", ""))
         return
 
-    # Daemon mode: sleep until scheduled time, then run, repeat
+    if not args.daemon:
+        print("No --daemon flag. Run with --daemon for polling mode.")
+        return
+
+    # Daemon mode: polling + scheduled reports
+    print(f"Starting bot with polling…")
+    print(f"Using chat_id={chat_id!r}")
+
+    app = Application.builder().token(bot_token).build()
+
+    # Store config and client in bot_data for handlers to access
+    app.bot_data["wordstat_client"] = client
+    app.bot_data["config"] = cfg
+    app.bot_data["chat_id"] = chat_id
+
+    # Register command handlers
+    app.add_handler(CommandHandler("start", start_command))
+    app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("report", report_command))
+
+    # Schedule reports
     sched = cfg.get("schedule", {})
-    weekday = int(sched.get("weekday", 0))   # 0=Monday … 6=Sunday
+    weekday = int(sched.get("weekday", 0))  # 0=Monday … 6=Sunday
     hour = int(sched.get("hour", 7))
     minute = int(sched.get("minute", 0))
+    print(f"Scheduled report: every weekday={weekday} at {hour:02d}:{minute:02d} UTC")
 
-    print(f"Daemon mode: will run every weekday={weekday} at {hour:02d}:{minute:02d} UTC")
-    while True:
-        next_run = _next_run_utc(weekday, hour, minute)
-        wait_secs = (next_run - datetime.utcnow()).total_seconds()
-        print(f"Next run: {next_run.strftime('%Y-%m-%d %H:%M')} UTC "
-              f"(in {wait_secs / 3600:.1f}h)")
-        time.sleep(wait_secs)
-        try:
-            run_once(client, cfg, bot_token, chat_id, args.dry_run)
-        except Exception as exc:  # noqa: BLE001
-            print(f"ERROR during run: {exc}", file=sys.stderr)
+    job_queue = app.job_queue
+    job_queue.run_daily(schedule_report, time=datetime.min.replace(hour=hour, minute=minute).time(),
+                       days=(weekday,), name="scheduled_report")
+
+    # Start polling
+    print("Bot is listening for commands…")
+    await app.initialize()
+    await app.start()
+    await app.updater.start_polling(allowed_updates=["message", "channel_post"])
+
+    try:
+        await asyncio.Event().wait()  # run forever
+    except KeyboardInterrupt:
+        print("\nShutting down…")
+    finally:
+        await app.updater.stop()
+        await app.stop()
+        await app.shutdown()
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
