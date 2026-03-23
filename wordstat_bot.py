@@ -200,18 +200,28 @@ def _default_from_date(period: str) -> str:
 # Weekly analytics summary
 # ---------------------------------------------------------------------------
 
-def build_analytics_summary(client: WordstatClient, analytics: list[dict]) -> list[str]:
+def build_analytics_summary(client: WordstatClient, analytics: list[dict],
+                             data_ready_weekday: int = 3) -> list[str]:
     """Build weekly analytics summary comparing current week vs previous week.
 
     The Wordstat API requires toDate for period=weekly to be a Sunday.
     We use the most recently completed Sunday as 'current week' and the
     Sunday before that as 'previous week'.
+
+    Wordstat weekly data is typically published on Wednesday or Thursday.
+    If today is before data_ready_weekday (0=Mon … 6=Sun, default 3=Thu),
+    we shift the window back by one week to avoid returning all-zero rows.
     """
     today = date.today()
     # Most recently completed Sunday: Mon=0 → 1 day back, Sun=6 → 0 days back
     days_since_sunday = (today.weekday() + 1) % 7
     last_sunday = today - timedelta(days=days_since_sunday)
     prev_sunday = last_sunday - timedelta(weeks=1)
+
+    # Fall back one week while fresh data hasn't been published yet
+    if today.weekday() < data_ready_weekday:
+        last_sunday -= timedelta(weeks=1)
+        prev_sunday -= timedelta(weeks=1)
 
     # Label: Mon–Sun of the most recently completed week
     week_monday = last_sunday - timedelta(days=6)
@@ -336,10 +346,12 @@ async def generate_report(client: WordstatClient, cfg: dict) -> str:
     """Generate the report text without sending."""
     clusters = cfg.get("clusters", [])
     analytics = cfg.get("analytics", [])
+    wc_cfg = cfg.get("wordstat", {})
+    data_ready_weekday = int(wc_cfg.get("data_ready_weekday", 3))
 
     summary_lines: list[str] = []
     if analytics:
-        summary_lines = build_analytics_summary(client, analytics)
+        summary_lines = build_analytics_summary(client, analytics, data_ready_weekday)
 
     sections: list[list[str]] = []
     for cluster in clusters:

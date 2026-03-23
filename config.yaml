@@ -18,6 +18,10 @@ schedule:
 wordstat:
   oauth_token: ""          # or set WORDSTAT_OAUTH_TOKEN env var
   base_url: "https://api.wordstat.yandex.net"
+  # Wordstat weekly data is typically published Wed/Thu.
+  # If today's weekday (0=Mon … 6=Sun) is less than this value,
+  # the analytics summary shifts back one week to avoid empty rows.
+  data_ready_weekday: 3    # 3 = Thursday
 
 telegram:
   bot_token: ""            # or set TELEGRAM_BOT_TOKEN env var
