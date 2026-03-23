@@ -11,7 +11,8 @@ import argparse
 import os
 import sys
 import textwrap
-from datetime import date, timedelta
+import time
+from datetime import date, datetime, timedelta
 
 import requests
 import yaml
@@ -330,11 +331,51 @@ def build_report(clusters_data: list[list[str]],
     return "\n".join(lines)
 
 
+def _next_run_utc(weekday: int, hour: int, minute: int) -> datetime:
+    """Return next UTC datetime matching the given weekday/hour/minute."""
+    now = datetime.utcnow()
+    days_ahead = (weekday - now.weekday()) % 7
+    candidate = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if days_ahead == 0 and now >= candidate:
+        days_ahead = 7
+    return candidate + timedelta(days=days_ahead)
+
+
+def run_once(client: WordstatClient, cfg: dict, bot_token: str, chat_id: str,
+             dry_run: bool) -> None:
+    clusters = cfg.get("clusters", [])
+    analytics = cfg.get("analytics", [])
+
+    summary_lines: list[str] = []
+    if analytics:
+        print(f"Building analytics summary ({len(analytics)} group(s))…")
+        summary_lines = build_analytics_summary(client, analytics)
+
+    print(f"Processing {len(clusters)} cluster(s)…")
+    sections: list[list[str]] = []
+    for cluster in clusters:
+        print(f"  → {cluster.get('name', '?')}")
+        sections.append(process_cluster(client, cluster))
+
+    report = build_report(sections, summary_lines)
+
+    if dry_run:
+        print("\n" + "=" * 60)
+        print(report.replace("\\", ""))
+        return
+
+    print("Sending to Telegram…")
+    send_telegram(bot_token, chat_id, report)
+    print("Done ✓")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Wordstat → Telegram digest")
     parser.add_argument("--config", default="config.yaml", help="Path to config file")
     parser.add_argument("--dry-run", action="store_true",
                         help="Print report to stdout, don't send to Telegram")
+    parser.add_argument("--daemon", action="store_true",
+                        help="Run on schedule (for bothost.ru / long-running process)")
     args = parser.parse_args()
 
     with open(args.config, encoding="utf-8") as fh:
@@ -365,29 +406,27 @@ def main() -> None:
         base_url=wc_cfg.get("base_url", "https://api.wordstat.yandex.net"),
     )
 
-    analytics = cfg.get("analytics", [])
-    summary_lines: list[str] = []
-    if analytics:
-        print(f"Building analytics summary ({len(analytics)} group(s))…")
-        summary_lines = build_analytics_summary(client, analytics)
-
-    print(f"Processing {len(clusters)} cluster(s)…")
-    sections: list[list[str]] = []
-    for cluster in clusters:
-        print(f"  → {cluster.get('name', '?')}")
-        sections.append(process_cluster(client, cluster))
-
-    report = build_report(sections, summary_lines)
-
-    if args.dry_run:
-        print("\n" + "=" * 60)
-        # Print plain version (strip escape backslashes for readability)
-        print(report.replace("\\", ""))
+    if not args.daemon:
+        run_once(client, cfg, bot_token, chat_id, args.dry_run)
         return
 
-    print("Sending to Telegram…")
-    send_telegram(bot_token, chat_id, report)
-    print("Done ✓")
+    # Daemon mode: sleep until scheduled time, then run, repeat
+    sched = cfg.get("schedule", {})
+    weekday = int(sched.get("weekday", 0))   # 0=Monday … 6=Sunday
+    hour = int(sched.get("hour", 7))
+    minute = int(sched.get("minute", 0))
+
+    print(f"Daemon mode: will run every weekday={weekday} at {hour:02d}:{minute:02d} UTC")
+    while True:
+        next_run = _next_run_utc(weekday, hour, minute)
+        wait_secs = (next_run - datetime.utcnow()).total_seconds()
+        print(f"Next run: {next_run.strftime('%Y-%m-%d %H:%M')} UTC "
+              f"(in {wait_secs / 3600:.1f}h)")
+        time.sleep(wait_secs)
+        try:
+            run_once(client, cfg, bot_token, chat_id, args.dry_run)
+        except Exception as exc:  # noqa: BLE001
+            print(f"ERROR during run: {exc}", file=sys.stderr)
 
 
 if __name__ == "__main__":
