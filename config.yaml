@@ -86,19 +86,3 @@ clusters:
     regions: []             # empty = all regions
     devices: ["all"]
 
-  - name: "Конкуренты (топ запросов)"
-    method: topRequests
-    phrases:
-      - "тс пиот 1с"
-      - "тс пиот мой склад"
-      - "тс пиот атол"
-      - "тс пиот сбис"
-    regions: []
-    devices: ["all"]
-
-  - name: "ТС ПИОТ — регионы"
-    method: regions
-    phrases:
-      - "тс пиот"
-    region_type: "regions"  # cities | regions | all
-    devices: ["all"]
