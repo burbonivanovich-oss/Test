@@ -421,7 +421,7 @@ async def main() -> None:
     parser.add_argument("--dry-run", action="store_true",
                         help="Print report to stdout, don't send to Telegram")
     parser.add_argument("--daemon", action="store_true",
-                        help="Run with polling and scheduled reports")
+                        help="(deprecated, polling is now the default)")
     args = parser.parse_args()
 
     with open(args.config, encoding="utf-8") as fh:
@@ -458,11 +458,7 @@ async def main() -> None:
         print(report_text.replace("\\", ""))
         return
 
-    if not args.daemon:
-        print("No --daemon flag. Run with --daemon for polling mode.")
-        return
-
-    # Daemon mode: polling + scheduled reports
+    # Polling + scheduled reports
     print(f"Starting bot with polling…")
     print(f"Using chat_id={chat_id!r}")
 
