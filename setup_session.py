@@ -42,7 +42,13 @@ async def main():
             result = await client.send_code_request(phone)
 
             # Get phone_code_hash from result
-            hash_val = result.phone_code_hash
+            print(f"\nDEBUG: result type = {type(result)}")
+            print(f"DEBUG: result attrs = {dir(result)}\n")
+
+            hash_val = getattr(result, 'phone_code_hash', None)
+            if not hash_val:
+                print("❌ Could not get phone_code_hash from result")
+                sys.exit(1)
             print()
             print("✅ Code sent to your Telegram!")
             print()
