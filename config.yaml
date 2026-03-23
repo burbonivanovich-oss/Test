@@ -7,6 +7,14 @@
 # On bothost.ru set these in the "Environment Variables" section of your bot settings.
 # Values below are used only as fallback when env vars are not set.
 
+# Schedule for daemon mode (bothost.ru / long-running process).
+# weekday: 0=Monday, 1=Tuesday … 6=Sunday
+# hour/minute: UTC time
+schedule:
+  weekday: 0   # Monday
+  hour: 7
+  minute: 0
+
 wordstat:
   oauth_token: ""          # or set WORDSTAT_OAUTH_TOKEN env var
   base_url: "https://api.wordstat.yandex.net"
