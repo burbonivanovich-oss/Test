@@ -91,20 +91,39 @@ clusters:
 # To get API credentials: https://my.telegram.org/apps
 # To get session string: python channel_monitor_setup.py <api_id> <api_hash>
 channel_monitor:
-  enabled: false            # Set to true to enable channel monitoring
+  enabled: true             # Set to true to enable channel monitoring
 
   # List of channels to monitor (public channels only, by username)
   channels:
-    - name: "Example Channel 1"
-      username: "@example_channel_1"    # public channel username
-    - name: "Example Channel 2"
-      username: "@example_channel_2"
+    - name: "РИА Новости"
+      username: "@rian_ru"
+    - name: "ТАСС"
+      username: "@tass_agency"
+    - name: "РБК"
+      username: "@rbc_news"
+    - name: "Коммерсант"
+      username: "@kommersant"
+    - name: "1C"
+      username: "@1c_rus"
+    - name: "InfoStart"
+      username: "@infostart_news"
+    - name: "СБИС"
+      username: "@sbis_news"
+    - name: "Честный знак"
+      username: "@chestnyznak_official"
+    - name: "АТОЛ"
+      username: "@atol_online"
+    - name: "МойСклад"
+      username: "@moysklad_news"
+    - name: "EcomCrew"
+      username: "@ecomcrew"
+    - name: "Habr"
+      username: "@habr_com"
 
   # Keywords to search for
   keywords:
-    - "ключевое слово 1"
-    - "ключевое слово 2"
-    - "ключевое слово 3"
+    - "тс пиот"
+    - "ТС ПИОТ"
 
   # Time window for monitoring (in hours)
   hours_lookback: 36
