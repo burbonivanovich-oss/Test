@@ -486,10 +486,12 @@ async def generate_channel_summary(monitor, cfg: dict) -> str:
 
 async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /report command."""
+    print(f"[COMMAND] /report from user {update.effective_user.id}")
     client: WordstatClient = context.bot_data.get("wordstat_client")
     cfg: dict = context.bot_data.get("config")
 
     if not client or not cfg:
+        print("[ERROR] Client or config not initialized")
         await update.message.reply_text("❌ Бот не инициализирован. Попробуйте позже.")
         return
 
@@ -497,42 +499,59 @@ async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await update.message.reply_text("⏳ Подготавливаю отчет...")
         report_text = await generate_report(client, cfg)
         await send_telegram(context.bot.token, str(update.effective_chat.id), report_text)
+        print("[OK] /report sent successfully")
     except Exception as exc:
+        print(f"[ERROR] /report failed: {exc}", file=sys.stderr)
         await update.message.reply_text(f"❌ Ошибка: {escape_html(str(exc))}")
 
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /start command."""
-    await update.message.reply_text(
-        "👋 Привет! Я — Wordstat дайджест бот.\n\n"
-        "Используй /report для получения отчета.\n\n"
-        "По расписанию я отправляю отчеты в группу автоматически."
-    )
+    print(f"[COMMAND] /start from user {update.effective_user.id}")
+    try:
+        await update.message.reply_text(
+            "👋 Привет! Я — Wordstat дайджест бот.\n\n"
+            "Используй /report для получения отчета.\n\n"
+            "По расписанию я отправляю отчеты в группу автоматически."
+        )
+        print("[OK] /start sent successfully")
+    except Exception as e:
+        print(f"[ERROR] /start failed: {e}", file=sys.stderr)
+        raise
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /help command."""
-    await update.message.reply_text(
-        "📖 <b>Доступные команды:</b>\n\n"
-        "/report — получить отчет сейчас\n"
-        "/channels — мониторинг Telegram-каналов\n"
-        "/start — справка\n"
-        "/help — эта справка",
-        parse_mode="HTML"
-    )
+    print(f"[COMMAND] /help from user {update.effective_user.id}")
+    try:
+        await update.message.reply_text(
+            "📖 <b>Доступные команды:</b>\n\n"
+            "/report — получить отчет сейчас\n"
+            "/channels — мониторинг Telegram-каналов\n"
+            "/start — справка\n"
+            "/help — эта справка",
+            parse_mode="HTML"
+        )
+        print("[OK] /help sent successfully")
+    except Exception as e:
+        print(f"[ERROR] /help failed: {e}", file=sys.stderr)
+        raise
 
 
 async def channels_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /channels command."""
+    print(f"[COMMAND] /channels from user {update.effective_user.id}")
     monitor = context.bot_data.get("channel_monitor")
     cfg: dict = context.bot_data.get("config")
 
     if not monitor or not cfg:
+        print("[ERROR] Monitor or config not initialized")
         await update.message.reply_text("❌ Мониторинг каналов не инициализирован.")
         return
 
     chan_cfg = cfg.get("channel_monitor", {})
     if not chan_cfg.get("enabled"):
+        print("[ERROR] Channel monitoring disabled")
         await update.message.reply_text("❌ Мониторинг каналов отключен в конфиге.")
         return
 
@@ -545,7 +564,9 @@ async def channels_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         for chunk in chunks:
             await send_telegram(context.bot.token, str(update.effective_chat.id), chunk)
 
+        print("[OK] /channels sent successfully")
     except Exception as exc:
+        print(f"[ERROR] /channels failed: {exc}", file=sys.stderr)
         await update.message.reply_text(f"❌ Ошибка: {escape_html(str(exc))}")
 
 
@@ -653,16 +674,20 @@ async def main() -> None:
     chan_cfg = cfg.get("channel_monitor", {})
     if chan_cfg.get("enabled"):
         print("Initializing channel monitor…")
-        channel_monitor = await create_monitor()
-        if channel_monitor:
-            # Check if it's RSS or Telethon based on class name
-            monitor_type = type(channel_monitor).__name__
-            if "RSS" in monitor_type:
-                print("✓ Channel monitor initialized (RSS-based, no Telegram API auth needed)")
+        try:
+            channel_monitor = await create_monitor()
+            if channel_monitor:
+                # Check if it's RSS or Telethon based on class name
+                monitor_type = type(channel_monitor).__name__
+                if "RSS" in monitor_type:
+                    print("✓ Channel monitor initialized (RSS-based, no Telegram API auth needed)")
+                else:
+                    print("✓ Channel monitor initialized (Telethon-based)")
             else:
-                print("✓ Channel monitor initialized (Telethon-based)")
-        else:
-            print("⚠️  Channel monitor failed to initialize")
+                print("⚠️  Channel monitor failed to initialize")
+        except Exception as e:
+            print(f"❌ Channel monitor initialization error: {e}", file=sys.stderr)
+            channel_monitor = None
 
     # Store config and clients in bot_data for handlers to access
     app.bot_data["wordstat_client"] = client
@@ -671,10 +696,12 @@ async def main() -> None:
     app.bot_data["chat_id"] = chat_id
 
     # Register command handlers
+    print("Registering command handlers…")
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("report", report_command))
     app.add_handler(CommandHandler("channels", channels_command))
+    print("✓ Command handlers registered")
 
     # Schedule reports
     sched = cfg.get("schedule", {})
