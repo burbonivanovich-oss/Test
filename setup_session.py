@@ -49,10 +49,16 @@ async def main():
             result = await client.send_code_request(phone)
 
             # Save phone_code_hash for later use
-            with open(hash_file, 'w') as f:
-                json.dump({'phone_code_hash': result.phone_code_hash}, f)
+            try:
+                hash_value = result.phone_code_hash
+                with open(hash_file, 'w') as f:
+                    json.dump({'phone_code_hash': hash_value}, f)
+                print(f"✅ Code sent! Hash saved to {hash_file}")
+            except Exception as e:
+                print(f"⚠️  Warning: Could not save hash - {e}")
 
-            print("✅ Code sent! Now run:")
+            print()
+            print("✅ Now run:")
             print()
             print(f"python3 setup_session.py {api_id} {api_hash} {phone} <CODE>")
             print()
