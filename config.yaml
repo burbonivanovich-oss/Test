@@ -1,19 +1,108 @@
-# Telegram Channel Monitor — Configuration
+# Wordstat + Telegram Channel Monitor Bot Configuration
 #
-# This bot monitors Telegram channels for keyword mentions and sends daily summaries.
+# Full-featured bot that:
+#   1. Collects data from Yandex Wordstat API
+#   2. Monitors Telegram channels for keyword mentions
+#   3. Sends combined daily reports
 #
-# Setup:
-#   1. Read SETUP_GUIDE.md for complete instructions
-#   2. Set up Telethon authentication (QR-code, SMS Auto, or SMS Manual)
-#   3. Save credentials to .env file
-#   4. Run: python wordstat_bot.py --config config.yaml
+# Credentials stored in environment variables (see .env or bothost.ru):
+#   - WORDSTAT_OAUTH_TOKEN (for Wordstat API)
+#   - TELEGRAM_BOT_TOKEN (for Telegram bot)
+#   - TELEGRAM_CHAT_ID (where to send reports)
+#   - TELETHON_API_ID, TELETHON_API_HASH, TELETHON_SESSION_STRING (for channel monitoring)
 
-# Channel monitoring — MAIN FEATURE
+# ============================================================================
+# FEATURE 1: WORDSTAT ANALYTICS
+# ============================================================================
+
+schedule:
+  weekday: 0   # Monday
+  hour: 7
+  minute: 0
+
+wordstat:
+  oauth_token: ""          # or set WORDSTAT_OAUTH_TOKEN env var
+  base_url: "https://api.wordstat.yandex.net"
+  # Wordstat weekly data is typically published Wed/Thu.
+  data_ready_weekday: 3    # 3 = Thursday
+
+telegram:
+  bot_token: ""            # or set TELEGRAM_BOT_TOKEN env var
+  chat_id: ""              # or set TELEGRAM_CHAT_ID env var
+
+# Analytics summary — compared current week vs previous week
+analytics:
+  - name: "Информационные запросы"
+    phrases:
+      - "модуль тс пиот"
+      - "реестр тс пиот"
+      - "тс пиот"
+      - "тс пиот перенос"
+      - "тс пиот честный знак что это"
+    regions: []
+    devices: ["all"]
+
+  - name: "Коммерческие запросы"
+    phrases:
+      - "внедрение тс пиот"
+      - "модуль тс пиот честный знак"
+      - "настройка тс пиот"
+      - "подключение к тс пиот"
+      - "работа с тс пиот"
+      - "тс пиот кабинет"
+      - "тс пиот как установить"
+      - "тс пиот кассы"
+      - "тс пиот купить"
+      - "тс пиот личный кабинет"
+      - "тс пиот регистрация"
+      - "тс пиот скачать"
+      - "тс пиот стоимость"
+      - "тс пиот цена"
+      - "установка тс пиот"
+    regions: []
+    devices: ["all"]
+
+  - name: "Брендовые (Контур Маркет)"
+    phrases:
+      - "тс пиот маркет"
+      - "тс пиот Контур"
+    regions: []
+    devices: ["all"]
+
+  - name: "Брендовые (конкуренты)"
+    phrases:
+      - "тс пиот 1с"
+      - "тс пиот мой склад"
+      - "тс пиот атол"
+      - "тс пиот сбис"
+    regions: []
+    devices: ["all"]
+
+# Query clusters — each produces one section in the report
+clusters:
+  - name: "ТС ПИОТ — топ запросов"
+    method: topRequests
+    phrases:
+      - "тс пиот"
+    regions: []
+    devices: ["all"]
+
+# ============================================================================
+# FEATURE 2: TELEGRAM CHANNEL MONITORING
+# ============================================================================
+# Monitor Telegram channels for keyword mentions.
+#
+# Authentication (Telethon):
+#   1. Run: python3 setup_session_auto.py <API_ID> <API_HASH> <PHONE>
+#   2. Save TELETHON_SESSION_STRING to environment variables
+#
+# Or use SSH:
+#   python3 setup_session_qr.py <API_ID> <API_HASH>
+
 channel_monitor:
-  enabled: true
+  enabled: true             # Set to false to disable channel monitoring
 
-  # List of 12 channels to monitor for "тс пиот" mentions
-  # Each channel must be PUBLIC (accessible without private access)
+  # List of 12 channels to monitor
   channels:
     - name: "РИА Новости"
       username: "@rian_ru"
@@ -51,51 +140,16 @@ channel_monitor:
     - name: "Habr"
       username: "@habr_com"
 
-  # Keywords to search for in channel messages
+  # Keywords to search for
   keywords:
     - "тс пиот"
     - "ТС ПИОТ"
 
-  # Time window: look back N hours for mentions
-  # 24-36 hours = last 1-1.5 days
+  # Time window: look back 24-36 hours
   hours_lookback: 36
 
-  # When to send the daily summary
+  # Schedule for daily channel summary
   schedule:
     weekday: 1              # 0=Monday, 1=Tuesday, … 6=Sunday
-    hour: 10                # 10:00 UTC
+    hour: 10                # UTC time
     minute: 0
-
-  # Output format: How to display mentions in the summary
-  # You'll get something like:
-  #   📱 РИА Новости
-  #   🔗 Ссылка: https://t.me/rian_ru/12345
-  #   📝 Текст: На рынке растет спрос на ТС ПИОТ...
-  #   🕐 Дата: 2024-03-23 10:30 UTC
-
-# Wordstat API configuration (optional, can be disabled)
-wordstat:
-  oauth_token: ""
-  base_url: "https://api.wordstat.yandex.net"
-  data_ready_weekday: 3
-
-# Telegram Bot configuration
-telegram:
-  bot_token: ""
-  chat_id: ""
-
-# For Wordstat analytics (optional)
-schedule:
-  weekday: 0
-  hour: 7
-  minute: 0
-
-analytics: []
-
-clusters:
-  - name: "ТС ПИОТ — топ запросов"
-    method: topRequests
-    phrases:
-      - "тс пиот"
-    regions: []
-    devices: ["all"]
