@@ -1,143 +1,101 @@
-# Wordstat → Telegram Bot Configuration
+# Telegram Channel Monitor — Configuration
 #
-# Secrets are loaded from environment variables (recommended):
-#   WORDSTAT_OAUTH_TOKEN, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
+# This bot monitors Telegram channels for keyword mentions and sends daily summaries.
 #
-# For local development, copy .env.example → .env and fill in values.
-# On bothost.ru set these in the "Environment Variables" section of your bot settings.
-# Values below are used only as fallback when env vars are not set.
+# Setup:
+#   1. Read SETUP_GUIDE.md for complete instructions
+#   2. Set up Telethon authentication (QR-code, SMS Auto, or SMS Manual)
+#   3. Save credentials to .env file
+#   4. Run: python wordstat_bot.py --config config.yaml
 
-# Schedule for daemon mode (bothost.ru / long-running process).
-# weekday: 0=Monday, 1=Tuesday … 6=Sunday
-# hour/minute: UTC time
+# Channel monitoring — MAIN FEATURE
+channel_monitor:
+  enabled: true
+
+  # List of 12 channels to monitor for "тс пиот" mentions
+  # Each channel must be PUBLIC (accessible without private access)
+  channels:
+    - name: "РИА Новости"
+      username: "@rian_ru"
+
+    - name: "ТАСС"
+      username: "@tass_agency"
+
+    - name: "РБК"
+      username: "@rbc_news"
+
+    - name: "Коммерсант"
+      username: "@kommersant"
+
+    - name: "1C"
+      username: "@1c_rus"
+
+    - name: "InfoStart"
+      username: "@infostart_news"
+
+    - name: "СБИС"
+      username: "@sbis_news"
+
+    - name: "Честный знак"
+      username: "@chestnyznak_official"
+
+    - name: "АТОЛ"
+      username: "@atol_online"
+
+    - name: "МойСклад"
+      username: "@moysklad_news"
+
+    - name: "EcomCrew"
+      username: "@ecomcrew"
+
+    - name: "Habr"
+      username: "@habr_com"
+
+  # Keywords to search for in channel messages
+  keywords:
+    - "тс пиот"
+    - "ТС ПИОТ"
+
+  # Time window: look back N hours for mentions
+  # 24-36 hours = last 1-1.5 days
+  hours_lookback: 36
+
+  # When to send the daily summary
+  schedule:
+    weekday: 1              # 0=Monday, 1=Tuesday, … 6=Sunday
+    hour: 10                # 10:00 UTC
+    minute: 0
+
+  # Output format: How to display mentions in the summary
+  # You'll get something like:
+  #   📱 РИА Новости
+  #   🔗 Ссылка: https://t.me/rian_ru/12345
+  #   📝 Текст: На рынке растет спрос на ТС ПИОТ...
+  #   🕐 Дата: 2024-03-23 10:30 UTC
+
+# Wordstat API configuration (optional, can be disabled)
+wordstat:
+  oauth_token: ""
+  base_url: "https://api.wordstat.yandex.net"
+  data_ready_weekday: 3
+
+# Telegram Bot configuration
+telegram:
+  bot_token: ""
+  chat_id: ""
+
+# For Wordstat analytics (optional)
 schedule:
-  weekday: 0   # Monday
+  weekday: 0
   hour: 7
   minute: 0
 
-wordstat:
-  oauth_token: ""          # or set WORDSTAT_OAUTH_TOKEN env var
-  base_url: "https://api.wordstat.yandex.net"
-  # Wordstat weekly data is typically published Wed/Thu.
-  # If today's weekday (0=Mon … 6=Sun) is less than this value,
-  # the analytics summary shifts back one week to avoid empty rows.
-  data_ready_weekday: 3    # 3 = Thursday
+analytics: []
 
-telegram:
-  bot_token: ""            # or set TELEGRAM_BOT_TOKEN env var
-  chat_id: ""              # or set TELEGRAM_CHAT_ID env var (numeric id, e.g. -1001234567890)
-
-# Analytics summary — compared current week vs previous week across query groups.
-# Each group aggregates total weekly counts for all its phrases.
-analytics:
-  - name: "Информационные запросы"
-    phrases:
-      - "модуль тс пиот"
-      - "реестр тс пиот"
-      - "тс пиот"
-      - "тс пиот перенос"
-      - "тс пиот честный знак что это"
-    regions: []        # empty = all regions
-    devices: ["all"]
-
-  - name: "Коммерческие запросы"
-    phrases:
-      - "внедрение тс пиот"
-      - "модуль тс пиот честный знак"
-      - "настройка тс пиот"
-      - "подключение к тс пиот"
-      - "работа с тс пиот"
-      - "тс пиот кабинет"
-      - "тс пиот как установить"
-      - "тс пиот кассы"
-      - "тс пиот купить"
-      - "тс пиот личный кабинет"
-      - "тс пиот регистрация"
-      - "тс пиот скачать"
-      - "тс пиот стоимость"
-      - "тс пиот цена"
-      - "установка тс пиот"
-    regions: []
-    devices: ["all"]
-
-  - name: "Брендовые (Контур Маркет)"
-    phrases:
-      - "тс пиот маркет"
-      - "тс пиот Контур"
-    regions: []
-    devices: ["all"]
-
-  - name: "Брендовые (конкуренты)"
-    phrases:
-      - "тс пиот 1с"
-      - "тс пиот мой склад"
-      - "тс пиот атол"
-      - "тс пиот сбис"
-    regions: []
-    devices: ["all"]
-
-# Query clusters — each cluster produces one section in the Telegram summary.
-# Supported methods per cluster: topRequests | dynamics | regions
 clusters:
   - name: "ТС ПИОТ — топ запросов"
     method: topRequests
     phrases:
       - "тс пиот"
-    regions: []             # empty = all regions
+    regions: []
     devices: ["all"]
-
-# Channel monitoring — monitor Telegram channels for keyword mentions
-#
-# Two methods available:
-#   1. Telethon (direct API) — faster, more reliable
-#      Requires: TELETHON_API_ID, TELETHON_API_HASH, TELETHON_SESSION_STRING env vars
-#      Setup: python channel_monitor_setup.py <api_id> <api_hash>
-#      Docs: https://my.telegram.org/apps
-#
-#   2. RSS-Hub (automatic fallback) — no authentication needed
-#      Works with public channels automatically
-#      Uses RSS feeds from RSSHub instances
-#      Automatically selected if Telethon credentials missing
-channel_monitor:
-  enabled: true             # Set to true to enable channel monitoring
-
-  # List of channels to monitor (public channels only, by username)
-  channels:
-    - name: "РИА Новости"
-      username: "@rian_ru"
-    - name: "ТАСС"
-      username: "@tass_agency"
-    - name: "РБК"
-      username: "@rbc_news"
-    - name: "Коммерсант"
-      username: "@kommersant"
-    - name: "1C"
-      username: "@1c_rus"
-    - name: "InfoStart"
-      username: "@infostart_news"
-    - name: "СБИС"
-      username: "@sbis_news"
-    - name: "Честный знак"
-      username: "@chestnyznak_official"
-    - name: "АТОЛ"
-      username: "@atol_online"
-    - name: "МойСклад"
-      username: "@moysklad_news"
-    - name: "EcomCrew"
-      username: "@ecomcrew"
-    - name: "Habr"
-      username: "@habr_com"
-
-  # Keywords to search for
-  keywords:
-    - "тс пиот"
-    - "ТС ПИОТ"
-
-  # Time window for monitoring (in hours)
-  hours_lookback: 36
-
-  # Schedule for daily report
-  schedule:
-    weekday: 1              # 0=Monday, 1=Tuesday … 6=Sunday
-    hour: 10
-    minute: 0

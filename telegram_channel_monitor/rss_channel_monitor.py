@@ -7,14 +7,13 @@ Uses public RSS feeds from RSSHub instances to monitor Telegram channels.
 
 import aiohttp
 import asyncio
-import ssl
-import certifi
-import feedparser
 import logging
 import re
 import html
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional
+from urllib.parse import urlparse
+import xml.etree.ElementTree as ET
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +26,8 @@ RSSHUB_INSTANCES = [
 
 def clean_html(text: str) -> str:
     """Remove HTML tags and decode HTML entities."""
+    if not text:
+        return ""
     # Remove tags
     text = re.sub(r'<[^>]+>', '', text)
     # Decode HTML entities
@@ -36,13 +37,103 @@ def clean_html(text: str) -> str:
     return text
 
 
+def parse_rss_feed(feed_xml: str) -> List[Dict]:
+    """
+    Parse RSS feed XML using built-in xml.etree.
+
+    Args:
+        feed_xml: XML content as string
+
+    Returns:
+        List of entry dictionaries
+    """
+    entries = []
+    try:
+        root = ET.fromstring(feed_xml)
+
+        # Handle both RSS and Atom formats
+        # RSS: /rss/channel/item
+        # Atom: /feed/entry
+
+        # Try RSS format
+        for item in root.findall('.//item'):
+            entry = {}
+
+            # Title
+            title_el = item.find('title')
+            entry['title'] = title_el.text if title_el is not None else ''
+
+            # Description/Summary
+            desc_el = item.find('description')
+            entry['summary'] = desc_el.text if desc_el is not None else ''
+
+            # Link
+            link_el = item.find('link')
+            entry['link'] = link_el.text if link_el is not None else ''
+
+            # PubDate
+            pubdate_el = item.find('pubDate')
+            if pubdate_el is not None and pubdate_el.text:
+                try:
+                    # Try to parse RFC 2822 format (RSS standard)
+                    from email.utils import parsedate_to_datetime
+                    entry['pubdate'] = parsedate_to_datetime(pubdate_el.text)
+                except:
+                    entry['pubdate'] = None
+            else:
+                entry['pubdate'] = None
+
+            if entry['title']:  # Only add if has title
+                entries.append(entry)
+
+        # If no RSS items, try Atom format
+        if not entries:
+            for entry_el in root.findall('.//{http://www.w3.org/2005/Atom}entry'):
+                entry = {}
+
+                # Title
+                title_el = entry_el.find('{http://www.w3.org/2005/Atom}title')
+                entry['title'] = title_el.text if title_el is not None else ''
+
+                # Summary/Content
+                summary_el = entry_el.find('{http://www.w3.org/2005/Atom}summary')
+                content_el = entry_el.find('{http://www.w3.org/2005/Atom}content')
+                entry['summary'] = (summary_el.text or content_el.text) if (summary_el is not None or content_el is not None) else ''
+
+                # Link
+                link_el = entry_el.find('{http://www.w3.org/2005/Atom}link')
+                if link_el is not None:
+                    entry['link'] = link_el.get('href', '')
+                else:
+                    entry['link'] = ''
+
+                # Published
+                published_el = entry_el.find('{http://www.w3.org/2005/Atom}published')
+                if published_el is not None and published_el.text:
+                    try:
+                        # ISO 8601 format
+                        entry['pubdate'] = datetime.fromisoformat(published_el.text.replace('Z', '+00:00'))
+                    except:
+                        entry['pubdate'] = None
+                else:
+                    entry['pubdate'] = None
+
+                if entry['title']:
+                    entries.append(entry)
+
+    except Exception as e:
+        logger.error(f"Error parsing RSS/Atom feed: {e}")
+        return []
+
+    return entries
+
+
 class RSSChannelMonitor:
     """Monitor Telegram channels via RSS feeds."""
 
     def __init__(self):
         """Initialize the RSS monitor."""
         self.session: Optional[aiohttp.ClientSession] = None
-        self.ssl_context = ssl.create_default_context(cafile=certifi.where())
         self.headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         }
@@ -75,12 +166,11 @@ class RSSChannelMonitor:
         if not self.session:
             await self.connect()
 
-        instance = rss_url.split('/')[2]  # Extract domain
+        instance = urlparse(rss_url).netloc
 
         try:
             async with self.session.get(
                 rss_url,
-                ssl=self.ssl_context,
                 headers=self.headers,
                 timeout=aiohttp.ClientTimeout(total=15)
             ) as resp:
@@ -123,7 +213,6 @@ class RSSChannelMonitor:
         cutoff = now - timedelta(hours=hours_lookback)
 
         # Try each RSSHub instance
-        success = False
         feed_text = None
 
         for instance in RSSHUB_INSTANCES:
@@ -132,49 +221,49 @@ class RSSChannelMonitor:
 
             feed_text = await self._fetch_rss_text(rss_url)
             if feed_text:
-                success = True
                 break
 
-        if not success:
+        if not feed_text:
             logger.warning(f"⚠️  Could not fetch RSS for @{clean_name}")
             return []
 
         # Parse feed
-        loop = asyncio.get_event_loop()
-        feed = await loop.run_in_executor(None, feedparser.parse, feed_text)
+        entries = parse_rss_feed(feed_text)
 
-        if hasattr(feed, 'bozo_exception') and feed.bozo_exception:
-            logger.error(f"❌ Parse error for @{clean_name}: {feed.bozo_exception}")
-            return []
-
-        if not feed.entries:
+        if not entries:
             logger.warning(f"⚠️  No entries in RSS for @{clean_name}")
             return []
 
         # Extract messages within time window
-        for entry in feed.entries:
+        for entry in entries:
             try:
                 # Get timestamp
-                if hasattr(entry, 'published_parsed') and entry.published_parsed:
-                    published = datetime(*entry.published_parsed[:6])
-                else:
+                pubdate = entry.get('pubdate')
+                if not pubdate:
                     continue
 
+                # Handle timezone-naive datetime
+                if pubdate.tzinfo is not None:
+                    pubdate = pubdate.replace(tzinfo=None)
+
                 # Skip old messages
-                if published < cutoff:
+                if pubdate < cutoff:
                     continue
 
                 # Extract text
-                raw_text = entry.title + ' ' + entry.get('summary', '')
+                raw_text = (entry.get('title', '') or '') + ' ' + (entry.get('summary', '') or '')
                 cleaned_text = clean_html(raw_text)
+
+                if not cleaned_text:
+                    continue
 
                 # Build message dict
                 msg = {
-                    'id': hash(entry.title),  # Pseudo-ID
+                    'id': hash(entry.get('title', '')),  # Pseudo-ID
                     'text': cleaned_text,
-                    'date': published,
-                    'link': entry.link if hasattr(entry, 'link') else f"https://t.me/{clean_name}",
-                    'title': entry.title,
+                    'date': pubdate,
+                    'link': entry.get('link', '') or f"https://t.me/{clean_name}",
+                    'title': entry.get('title', ''),
                 }
                 messages.append(msg)
 
