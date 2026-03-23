@@ -86,3 +86,31 @@ clusters:
     regions: []             # empty = all regions
     devices: ["all"]
 
+# Channel monitoring — monitor Telegram channels for keyword mentions
+# Secrets: TELETHON_API_ID, TELETHON_API_HASH, TELETHON_SESSION_STRING env vars
+# To get API credentials: https://my.telegram.org/apps
+# To get session string: python channel_monitor_setup.py <api_id> <api_hash>
+channel_monitor:
+  enabled: false            # Set to true to enable channel monitoring
+
+  # List of channels to monitor (public channels only, by username)
+  channels:
+    - name: "Example Channel 1"
+      username: "@example_channel_1"    # public channel username
+    - name: "Example Channel 2"
+      username: "@example_channel_2"
+
+  # Keywords to search for
+  keywords:
+    - "ключевое слово 1"
+    - "ключевое слово 2"
+    - "ключевое слово 3"
+
+  # Time window for monitoring (in hours)
+  hours_lookback: 36
+
+  # Schedule for daily report
+  schedule:
+    weekday: 1              # 0=Monday, 1=Tuesday … 6=Sunday
+    hour: 10
+    minute: 0

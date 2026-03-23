@@ -28,6 +28,15 @@ try:
 except ImportError:
     pass
 
+# Import channel monitoring modules
+from telegram_channel_monitor.channel_monitor import create_monitor
+from telegram_channel_monitor.message_filter import MessageFilter
+from telegram_channel_monitor.message_parser import parse_message_data
+from telegram_channel_monitor.summary_formatter import (
+    group_results_by_keyword,
+    format_summary_with_pagination,
+)
+
 
 # ---------------------------------------------------------------------------
 # Wordstat API client
@@ -374,6 +383,104 @@ async def generate_report(client: WordstatClient, cfg: dict) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Channel monitoring
+# ---------------------------------------------------------------------------
+
+async def collect_channel_mentions(
+    monitor,
+    cfg: dict,
+) -> list:
+    """
+    Collect keyword mentions from monitored channels.
+
+    Args:
+        monitor: ChannelMonitor instance
+        cfg: Configuration dict with channel_monitor section
+
+    Returns:
+        List of (message_data, keyword) tuples
+    """
+    chan_cfg = cfg.get("channel_monitor", {})
+    channels = chan_cfg.get("channels", [])
+    keywords = chan_cfg.get("keywords", [])
+    hours_lookback = chan_cfg.get("hours_lookback", 36)
+
+    if not channels or not keywords:
+        return []
+
+    results: list = []
+
+    for channel_info in channels:
+        channel_name = channel_info.get("name", "Unknown")
+        username = channel_info.get("username", "")
+        channel_id = channel_info.get("channel_id")
+
+        channel_identifier = username or channel_id
+        if not channel_identifier:
+            continue
+
+        try:
+            # Fetch messages from channel
+            messages = await monitor.get_messages_from_channel(
+                channel_identifier,
+                limit=100,
+            )
+
+            if not messages:
+                continue
+
+            # Filter by timestamp and keywords
+            filtered = MessageFilter.filter_messages(
+                messages,
+                keywords,
+                hours_lookback,
+            )
+
+            # Parse message data
+            for msg, keyword in filtered:
+                msg_data = parse_message_data(msg, channel_name, username)
+                results.append((msg_data, keyword))
+
+        except Exception as exc:
+            print(
+                f"⚠️  Error processing channel {channel_name}: {exc}",
+                file=sys.stderr,
+            )
+            continue
+
+    return results
+
+
+async def generate_channel_summary(monitor, cfg: dict) -> str:
+    """
+    Generate the channel monitoring summary.
+
+    Args:
+        monitor: ChannelMonitor instance
+        cfg: Configuration dict
+
+    Returns:
+        Summary text
+    """
+    chan_cfg = cfg.get("channel_monitor", {})
+    hours_lookback = chan_cfg.get("hours_lookback", 36)
+
+    results = await collect_channel_mentions(monitor, cfg)
+
+    if not results:
+        return f"📊 <b>Мониторинг Telegram-каналов</b>\n\n🔍 <i>Упоминания ключевых слов не найдены за последние {hours_lookback} часов</i>"
+
+    # Group by keyword
+    grouped = group_results_by_keyword(results)
+
+    # Format with pagination
+    chunks = format_summary_with_pagination(grouped, hours_lookback)
+
+    # Return combined text (will be split when sending)
+    return "\n\n".join(chunks)
+
+
+# ---------------------------------------------------------------------------
 # Telegram command handlers
 # ---------------------------------------------------------------------------
 
@@ -408,10 +515,38 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     await update.message.reply_text(
         "📖 <b>Доступные команды:</b>\n\n"
         "/report — получить отчет сейчас\n"
+        "/channels — мониторинг Telegram-каналов\n"
         "/start — справка\n"
         "/help — эта справка",
         parse_mode="HTML"
     )
+
+
+async def channels_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /channels command."""
+    monitor = context.bot_data.get("channel_monitor")
+    cfg: dict = context.bot_data.get("config")
+
+    if not monitor or not cfg:
+        await update.message.reply_text("❌ Мониторинг каналов не инициализирован.")
+        return
+
+    chan_cfg = cfg.get("channel_monitor", {})
+    if not chan_cfg.get("enabled"):
+        await update.message.reply_text("❌ Мониторинг каналов отключен в конфиге.")
+        return
+
+    try:
+        await update.message.reply_text("⏳ Анализирую каналы...")
+        summary_text = await generate_channel_summary(monitor, cfg)
+
+        # Split and send
+        chunks = _split_message(summary_text, limit=4000)
+        for chunk in chunks:
+            await send_telegram(context.bot.token, str(update.effective_chat.id), chunk)
+
+    except Exception as exc:
+        await update.message.reply_text(f"❌ Ошибка: {escape_html(str(exc))}")
 
 
 # ---------------------------------------------------------------------------
@@ -434,6 +569,30 @@ async def schedule_report(context: ContextTypes.DEFAULT_TYPE) -> None:
         print("Done ✓")
     except Exception as exc:
         print(f"ERROR during scheduled run: {exc}", file=sys.stderr)
+
+
+async def schedule_channel_summary(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Send scheduled channel monitoring summary."""
+    monitor = context.bot_data.get("channel_monitor")
+    cfg: dict = context.bot_data.get("config")
+    chat_id: str = context.bot_data.get("chat_id")
+
+    if not monitor or not cfg or not chat_id:
+        return
+
+    chan_cfg = cfg.get("channel_monitor", {})
+    if not chan_cfg.get("enabled"):
+        return
+
+    try:
+        print(f"[{datetime.utcnow().strftime('%H:%M:%S')}] Sending scheduled channel summary…")
+        summary_text = await generate_channel_summary(monitor, cfg)
+        chunks = _split_message(summary_text, limit=4000)
+        for chunk in chunks:
+            await send_telegram(context.bot.token, chat_id, chunk)
+        print("Done ✓")
+    except Exception as exc:
+        print(f"ERROR during channel monitoring: {exc}", file=sys.stderr)
 
 
 # ---------------------------------------------------------------------------
@@ -489,8 +648,19 @@ async def main() -> None:
 
     app = Application.builder().token(bot_token).build()
 
-    # Store config and client in bot_data for handlers to access
+    # Initialize channel monitor
+    channel_monitor = None
+    chan_cfg = cfg.get("channel_monitor", {})
+    if chan_cfg.get("enabled"):
+        channel_monitor = await create_monitor()
+        if channel_monitor:
+            print("✓ Channel monitor initialized")
+        else:
+            print("⚠️  Channel monitor failed to initialize (missing credentials)")
+
+    # Store config and clients in bot_data for handlers to access
     app.bot_data["wordstat_client"] = client
+    app.bot_data["channel_monitor"] = channel_monitor
     app.bot_data["config"] = cfg
     app.bot_data["chat_id"] = chat_id
 
@@ -498,6 +668,7 @@ async def main() -> None:
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("report", report_command))
+    app.add_handler(CommandHandler("channels", channels_command))
 
     # Schedule reports
     sched = cfg.get("schedule", {})
@@ -510,6 +681,16 @@ async def main() -> None:
     job_queue.run_daily(schedule_report, time=datetime.min.replace(hour=hour, minute=minute).time(),
                        days=(weekday,), name="scheduled_report")
 
+    # Schedule channel monitoring (if enabled)
+    if channel_monitor and chan_cfg.get("enabled"):
+        chan_sched = chan_cfg.get("schedule", {})
+        chan_weekday = int(chan_sched.get("weekday", 1))
+        chan_hour = int(chan_sched.get("hour", 10))
+        chan_minute = int(chan_sched.get("minute", 0))
+        print(f"Scheduled channel summary: every weekday={chan_weekday} at {chan_hour:02d}:{chan_minute:02d} UTC")
+        job_queue.run_daily(schedule_channel_summary, time=datetime.min.replace(hour=chan_hour, minute=chan_minute).time(),
+                           days=(chan_weekday,), name="scheduled_channel_summary")
+
     # Start polling
     print("Bot is listening for commands…")
     await app.initialize()
@@ -521,6 +702,9 @@ async def main() -> None:
     except KeyboardInterrupt:
         print("\nShutting down…")
     finally:
+        # Close channel monitor
+        if channel_monitor:
+            await channel_monitor.close()
         await app.updater.stop()
         await app.stop()
         await app.shutdown()
