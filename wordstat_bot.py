@@ -109,7 +109,7 @@ def format_dynamics(phrase: str, items: list[dict]) -> list[str]:
         count = _fmt_number(item.get("count", 0))
         share = item.get("share", 0)
         share_str = escape_md(f"{share:.4f}")
-        lines.append(f"  {d}: {count} \\({share_str}%\\)")
+        lines.append(f"  {escape_md(d)}: {count} \\({share_str}%\\)")
     # Trend: compare first vs last period
     if len(items) >= 2:
         first_count = items[0].get("count", 0)
@@ -147,7 +147,7 @@ def process_cluster(client: WordstatClient, cluster: dict) -> list[str]:
     regions = cluster.get("regions") or []
     devices = cluster.get("devices", ["all"])
 
-    section: list[str] = [f"*━━ {name} ━━*"]
+    section: list[str] = [f"*━━ {escape_md(name)} ━━*"]
 
     for phrase in phrases:
         try:
@@ -169,12 +169,12 @@ def process_cluster(client: WordstatClient, cluster: dict) -> list[str]:
                 section += format_regions(phrase, items)
 
             else:
-                section.append(f"  ⚠️ Неизвестный метод: {method}")
+                section.append(f"  ⚠️ Неизвестный метод: {escape_md(method)}")
 
         except requests.HTTPError as exc:
-            section.append(f"  ❌ Ошибка API для «{phrase}»: {exc.response.status_code}")
+            section.append(f"  ❌ Ошибка API для «{escape_md(phrase)}»: {exc.response.status_code}")
         except Exception as exc:  # noqa: BLE001
-            section.append(f"  ❌ Ошибка для «{phrase}»: {exc}")
+            section.append(f"  ❌ Ошибка для «{escape_md(phrase)}»: {escape_md(str(exc))}")
 
     return section
 
