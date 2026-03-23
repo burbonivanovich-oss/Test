@@ -65,6 +65,23 @@ async def main():
             print("🔐 Verifying code...")
             try:
                 await client.sign_in(phone, code)
+
+            except Exception as e:
+                # Check if it's asking for password (2FA enabled)
+                if "password" in str(e).lower():
+                    print("⚠️  Two-factor authentication enabled")
+                    password = input("Enter your 2FA password: ").strip()
+                    try:
+                        await client.sign_in(password=password)
+                    except Exception as e2:
+                        print(f"❌ Password verification failed: {e2}")
+                        sys.exit(1)
+                else:
+                    print(f"❌ Code verification failed: {e}")
+                    sys.exit(1)
+
+            # Get user info
+            try:
                 me = await client.get_me()
                 print()
                 print("✅ Success! Session created and saved.")
@@ -77,9 +94,8 @@ async def main():
                 print()
                 print("Copy this file to your server (e.g., bothost.ru)")
                 print()
-
             except Exception as e:
-                print(f"❌ Code verification failed: {e}")
+                print(f"❌ Error getting user info: {e}")
                 sys.exit(1)
 
     except Exception as e:
