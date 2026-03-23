@@ -86,19 +86,19 @@ def _fmt_number(n: int | float) -> str:
 
 
 def format_top_requests(phrase: str, items: list[dict], top_n: int = 10) -> list[str]:
-    lines = [f"🔍 *{phrase}* — топ запросов (30 дней)"]
+    lines = [f"🔍 *{escape_md(phrase)}* — топ запросов \(30 дней\)"]
     if not items:
         lines.append("  _нет данных_")
         return lines
     for i, item in enumerate(items[:top_n], 1):
         count = _fmt_number(item.get("count", 0))
-        kw = item.get("phrase", "—")
+        kw = escape_md(item.get("phrase", "—"))
         lines.append(f"  {i}\\. {kw} — {count}")
     return lines
 
 
 def format_dynamics(phrase: str, items: list[dict]) -> list[str]:
-    lines = [f"📈 *{phrase}* — динамика"]
+    lines = [f"📈 *{escape_md(phrase)}* — динамика"]
     if not items:
         lines.append("  _нет данных_")
         return lines
@@ -107,7 +107,8 @@ def format_dynamics(phrase: str, items: list[dict]) -> list[str]:
         d = item.get("date", "?")
         count = _fmt_number(item.get("count", 0))
         share = item.get("share", 0)
-        lines.append(f"  {d}: {count} ({share:.4f}%)")
+        share_str = escape_md(f"{share:.4f}")
+        lines.append(f"  {d}: {count} \\({share_str}%\\)")
     # Trend: compare first vs last period
     if len(items) >= 2:
         first_count = items[0].get("count", 0)
@@ -115,12 +116,13 @@ def format_dynamics(phrase: str, items: list[dict]) -> list[str]:
         if first_count:
             delta = (last_count - first_count) / first_count * 100
             arrow = "↑" if delta >= 0 else "↓"
-            lines.append(f"  Тренд: {arrow} {abs(delta):.1f}% к началу периода")
+            delta_str = escape_md(f"{abs(delta):.1f}")
+            lines.append(f"  Тренд: {arrow} {delta_str}% к началу периода")
     return lines
 
 
 def format_regions(phrase: str, items: list[dict], top_n: int = 5) -> list[str]:
-    lines = [f"🗺 *{phrase}* — топ регионов (30 дней)"]
+    lines = [f"🗺 *{escape_md(phrase)}* — топ регионов \(30 дней\)"]
     if not items:
         lines.append("  _нет данных_")
         return lines
@@ -128,8 +130,8 @@ def format_regions(phrase: str, items: list[dict], top_n: int = 5) -> list[str]:
     for item in sorted_items[:top_n]:
         count = _fmt_number(item.get("count", 0))
         rid = item.get("regionId", "?")
-        affinity = item.get("affinityIndex", 0)
-        lines.append(f"  [{rid}] {count} запросов, affinity {affinity}%")
+        affinity = escape_md(str(item.get("affinityIndex", 0)))
+        lines.append(f"  \\[{rid}\\] {count} запросов, affinity {affinity}%")
     return lines
 
 
@@ -242,8 +244,7 @@ def build_analytics_summary(client: WordstatClient, analytics: list[dict]) -> li
                 if len(items) >= 2:
                     prev_total += items[-2].get("count", 0)
                     current_total += items[-1].get("count", 0)
-                elif len(items) == 1:
-                    current_total += items[-1].get("count", 0)
+                # len(items) == 1: can't determine which week, skip
             except Exception:  # noqa: BLE001
                 pass
 
@@ -305,7 +306,7 @@ def _split_message(text: str, limit: int = 4000) -> list[str]:
 
 def escape_md(text: str) -> str:
     """Escape special chars for Telegram MarkdownV2 (outside bold/italic markers)."""
-    special = r"\_[]()~`>#+-=|{}.!"
+    special = r"\_*[]()~`>#+-=|{}.!"
     for ch in special:
         text = text.replace(ch, f"\\{ch}")
     return text
