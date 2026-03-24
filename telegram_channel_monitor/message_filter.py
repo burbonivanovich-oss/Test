@@ -89,6 +89,7 @@ class MessageFilter:
         """
         seen = set()
         unique = []
+        no_id_counter = 0  # fallback counter for messages without an ID
 
         for item in messages:
             msg = item[0] if isinstance(item, tuple) else item
@@ -99,7 +100,13 @@ class MessageFilter:
             else:
                 msg_id = msg.id if hasattr(msg, 'id') else None
 
-            if msg_id and msg_id not in seen:
+            if msg_id is None:
+                # Messages without ID cannot be deduplicated — keep them all,
+                # using a unique sentinel so they are not accidentally dropped.
+                msg_id = f"__no_id_{no_id_counter}__"
+                no_id_counter += 1
+
+            if msg_id not in seen:
                 seen.add(msg_id)
                 unique.append(item)
 
