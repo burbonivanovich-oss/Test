@@ -1,1 +1,1 @@
-entrypoint: "python wordstat_bot.py"
+entrypoint: "python main.py"
