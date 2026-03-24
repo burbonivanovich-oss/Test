@@ -24,7 +24,7 @@ try:
 except ImportError:
     pass
 
-from wordstat import WordstatClient, generate_report, generate_daily_dynamics_report, escape_html
+from wordstat import WordstatClient, generate_report, generate_daily_compact_report, escape_html
 from telegram_channel_monitor.channel_monitor import create_monitor
 from telegram_channel_monitor.message_filter import MessageFilter
 from telegram_channel_monitor.message_parser import parse_message_data
@@ -109,23 +109,19 @@ async def _scheduled_wordstat_report(context: ContextTypes.DEFAULT_TYPE) -> None
 
 
 async def _scheduled_daily_dynamics(context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Scheduled job — send daily dynamics (last 7 days) for the top query."""
+    """Scheduled job — send compact daily digest (top queries + daily dynamics)."""
     client = context.bot_data.get("wordstat_client")
     cfg = context.bot_data.get("config")
     chat_id = context.bot_data.get("chat_id")
     if not client or not cfg or not chat_id:
         return
-    dd_cfg = cfg.get("daily_dynamics", {})
-    phrase = dd_cfg.get("phrase", "тс пиот")
-    regions = dd_cfg.get("regions") or []
-    devices = dd_cfg.get("devices", ["all"])
     try:
-        print(f"[{datetime.utcnow().strftime('%H:%M:%S')}] Sending daily dynamics report…")
-        report = await generate_daily_dynamics_report(client, phrase, regions, devices)
+        print(f"[{datetime.utcnow().strftime('%H:%M:%S')}] Sending daily compact report…")
+        report = await generate_daily_compact_report(client, cfg)
         await send_telegram(context.bot.token, chat_id, report)
         print("Done ✓")
     except Exception as exc:
-        print(f"ERROR in scheduled daily dynamics: {exc}", file=sys.stderr)
+        print(f"ERROR in scheduled daily compact report: {exc}", file=sys.stderr)
 
 
 def setup_wordstat_feature(app: Application, client: WordstatClient, cfg: dict) -> None:
