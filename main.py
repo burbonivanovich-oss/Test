@@ -32,6 +32,7 @@ from telegram_channel_monitor.summary_formatter import (
     group_results_by_keyword,
     format_summary_with_pagination,
 )
+from telegram_channel_monitor.rss_feed_monitor import RSSFeedMonitor
 
 
 # ---------------------------------------------------------------------------
@@ -190,12 +191,55 @@ async def _collect_channel_mentions(monitor, cfg: dict) -> list:
     return results
 
 
+async def _collect_rss_feed_mentions(cfg: dict) -> list:
+    """Fetch all configured RSS feeds and filter by channel_monitor keywords."""
+    rss_cfg = cfg.get("rss_feeds", {})
+    if not rss_cfg.get("enabled"):
+        return []
+
+    feeds = rss_cfg.get("feeds", [])
+    if not feeds:
+        return []
+
+    # Re-use the same keywords and hours_lookback as channel monitoring
+    keywords = cfg.get("channel_monitor", {}).get("keywords", [])
+    hours_lookback = cfg.get("channel_monitor", {}).get("hours_lookback", 36)
+    if not keywords:
+        return []
+
+    monitor = RSSFeedMonitor()
+    results = []
+    try:
+        await monitor.connect()
+        for feed in feeds:
+            name = feed.get("name", "RSS")
+            url = feed.get("url", "")
+            if not url:
+                continue
+            try:
+                messages = await monitor.get_messages(name, url)
+                for msg, keyword in MessageFilter.filter_messages(messages, keywords, hours_lookback):
+                    results.append((parse_message_data(msg, name, url), keyword))
+            except Exception as exc:
+                print(f"⚠️  Error processing RSS feed {name}: {exc}", file=sys.stderr)
+    finally:
+        await monitor.close()
+
+    return results
+
+
 async def _build_channel_summary(monitor, cfg: dict) -> str:
     hours_lookback = cfg.get("channel_monitor", {}).get("hours_lookback", 36)
-    results = await _collect_channel_mentions(monitor, cfg)
+
+    channel_results, rss_results = await asyncio.gather(
+        _collect_channel_mentions(monitor, cfg),
+        _collect_rss_feed_mentions(cfg),
+    )
+    results = channel_results + rss_results
+
     if not results:
         return (
-            f"📊 <b>Мониторинг Telegram-каналов</b>\n\n"
+            f"📊 <b>Мониторинг Telegram-каналов и RSS</b>\n\n"
             f"🔍 <i>Упоминания не найдены за последние {hours_lookback} часов</i>"
         )
     return "\n\n".join(
