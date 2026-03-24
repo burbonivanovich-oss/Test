@@ -12,8 +12,6 @@ import argparse
 import asyncio
 import os
 import sys
-import textwrap
-import time
 from datetime import date, datetime, timedelta
 
 import aiohttp
@@ -395,7 +393,7 @@ async def generate_report(client: WordstatClient, cfg: dict) -> str:
     Dispatches the blocking Wordstat API calls to a thread-pool executor so that
     the asyncio event loop is not blocked while waiting for HTTP responses.
     """
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     return await loop.run_in_executor(None, _sync_generate_report, client, cfg)
 
 
