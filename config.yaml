@@ -170,3 +170,26 @@ daily_dynamics:
   phrase: "тс пиот"
   regions: []
   devices: ["all"]
+
+# ============================================================================
+# FEATURE 4: RSS FEED MONITORING
+# ============================================================================
+# Monitor arbitrary RSS/Atom feeds for keyword mentions.
+# Results are merged into the daily channel digest.
+# Uses the same keywords and hours_lookback as channel_monitor.
+
+rss_feeds:
+  enabled: true
+
+  feeds:
+    - name: "Habr"
+      url: "https://habr.com/ru/rss/all/all/"
+
+    - name: "VC.ru"
+      url: "https://vc.ru/rss"
+
+    - name: "RBC"
+      url: "https://rssexport.rbc.ru/rbcnews/news/20/full.rss"
+
+    - name: "Retail.ru"
+      url: "https://www.retail.ru/rss/news.xml"
