@@ -17,7 +17,7 @@
 
 schedule:
   weekday: 0   # Monday
-  hour: 7
+  hour: 7      # UTC → 12:00 GMT+5
   minute: 0
 
 wordstat:
@@ -145,11 +145,11 @@ channel_monitor:
     - "тс пиот"
     - "ТС ПИОТ"
 
-  # Time window: look back 24-36 hours
-  hours_lookback: 36
+  # Time window for scanning messages
+  hours_lookback: 60
 
-  # Schedule for daily channel summary
+  # Schedule for channel summary digest
   schedule:
     weekday: 1              # 0=Monday, 1=Tuesday, … 6=Sunday
-    hour: 10                # UTC time
+    hour: 5                 # UTC → 10:00 GMT+5
     minute: 0
