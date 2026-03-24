@@ -140,10 +140,14 @@ channel_monitor:
     - name: "Habr"
       username: "@habr_com"
 
+    - name: "Контур.Маркет"
+      username: "@konturmarket"
+
   # Keywords to search for
   keywords:
     - "тс пиот"
     - "ТС ПИОТ"
+    - "Маркет"
 
   # Time window for scanning messages
   hours_lookback: 60
@@ -151,5 +155,5 @@ channel_monitor:
   # Schedule for channel summary digest
   schedule:
     weekday: 1              # 0=Monday, 1=Tuesday, … 6=Sunday
-    hour: 5                 # UTC → 10:00 GMT+5
+    hour: 4                 # UTC → 09:00 GMT+5
     minute: 0
