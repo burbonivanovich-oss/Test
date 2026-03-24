@@ -150,7 +150,7 @@ channel_monitor:
     - "Маркет"
 
   # Time window for scanning messages
-  hours_lookback: 60
+  hours_lookback: 36
 
   # Schedule for channel summary digest (runs every day)
   schedule:
@@ -187,9 +187,6 @@ rss_feeds:
 
     - name: "VC.ru"
       url: "https://vc.ru/rss"
-
-    - name: "RBC"
-      url: "https://rssexport.rbc.ru/rbcnews/news/20/full.rss"
 
     - name: "Retail.ru"
       url: "https://www.retail.ru/rss/news.xml"
