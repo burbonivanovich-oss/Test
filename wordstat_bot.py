@@ -16,6 +16,7 @@ import textwrap
 import time
 from datetime import date, datetime, timedelta
 
+import aiohttp
 import requests
 import yaml
 from telegram import Update
@@ -310,19 +311,25 @@ def build_analytics_summary(client: WordstatClient, analytics: list[dict],
 # ---------------------------------------------------------------------------
 
 async def send_telegram(bot_token: str, chat_id: str, text: str) -> None:
+    """Send text to Telegram using async aiohttp (non-blocking)."""
     url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
-    # Telegram has a 4096-char limit per message; split if needed
     chunks = _split_message(text, limit=4000)
-    for chunk in chunks:
-        resp = requests.post(url, json={
-            "chat_id": chat_id,
-            "text": chunk,
-            "parse_mode": "HTML",
-            "disable_web_page_preview": True,
-        }, timeout=30)
-        if not resp.ok:
-            print(f"Telegram error {resp.status_code}: {resp.text}", file=sys.stderr)
-        resp.raise_for_status()
+    async with aiohttp.ClientSession() as session:
+        for chunk in chunks:
+            async with session.post(
+                url,
+                json={
+                    "chat_id": chat_id,
+                    "text": chunk,
+                    "parse_mode": "HTML",
+                    "disable_web_page_preview": True,
+                },
+                timeout=aiohttp.ClientTimeout(total=30),
+            ) as resp:
+                if not resp.ok:
+                    body = await resp.text()
+                    print(f"Telegram error {resp.status}: {body}", file=sys.stderr)
+                resp.raise_for_status()
 
 
 def _split_message(text: str, limit: int = 4000) -> list[str]:
@@ -364,8 +371,8 @@ def build_report(clusters_data: list[list[str]],
     return "\n".join(lines)
 
 
-async def generate_report(client: WordstatClient, cfg: dict) -> str:
-    """Generate the report text without sending."""
+def _sync_generate_report(client: WordstatClient, cfg: dict) -> str:
+    """Synchronous report builder — runs all blocking Wordstat API calls."""
     clusters = cfg.get("clusters", [])
     analytics = cfg.get("analytics", [])
     wc_cfg = cfg.get("wordstat", {})
@@ -380,6 +387,16 @@ async def generate_report(client: WordstatClient, cfg: dict) -> str:
         sections.append(process_cluster(client, cluster))
 
     return build_report(sections, summary_lines)
+
+
+async def generate_report(client: WordstatClient, cfg: dict) -> str:
+    """Generate the report text without sending.
+
+    Dispatches the blocking Wordstat API calls to a thread-pool executor so that
+    the asyncio event loop is not blocked while waiting for HTTP responses.
+    """
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, _sync_generate_report, client, cfg)
 
 
 # ---------------------------------------------------------------------------

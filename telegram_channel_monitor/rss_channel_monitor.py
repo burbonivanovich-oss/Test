@@ -7,6 +7,7 @@ Uses public RSS feeds from RSSHub instances to monitor Telegram channels.
 
 import aiohttp
 import asyncio
+import hashlib
 import logging
 import re
 import html
@@ -95,10 +96,12 @@ def parse_rss_feed(feed_xml: str) -> List[Dict]:
                 title_el = entry_el.find('{http://www.w3.org/2005/Atom}title')
                 entry['title'] = title_el.text if title_el is not None else ''
 
-                # Summary/Content
+                # Summary/Content — each element may be None independently
                 summary_el = entry_el.find('{http://www.w3.org/2005/Atom}summary')
                 content_el = entry_el.find('{http://www.w3.org/2005/Atom}content')
-                entry['summary'] = (summary_el.text or content_el.text) if (summary_el is not None or content_el is not None) else ''
+                summary_text = summary_el.text if summary_el is not None else None
+                content_text = content_el.text if content_el is not None else None
+                entry['summary'] = summary_text or content_text or ''
 
                 # Link
                 link_el = entry_el.find('{http://www.w3.org/2005/Atom}link')
@@ -209,7 +212,7 @@ class RSSChannelMonitor:
 
         clean_name = channel_identifier.lstrip('@')
         messages = []
-        now = datetime.now()
+        now = datetime.utcnow()
         cutoff = now - timedelta(hours=hours_lookback)
 
         # Try each RSSHub instance
@@ -258,11 +261,16 @@ class RSSChannelMonitor:
                     continue
 
                 # Build message dict
+                # Use MD5 of the link as a stable integer ID.
+                # Python's built-in hash() is randomized per-process (PYTHONHASHSEED),
+                # so identical links produce different IDs across restarts — broken dedup.
+                link = entry.get('link', '') or f"https://t.me/{clean_name}"
+                stable_id = int(hashlib.md5(link.encode()).hexdigest(), 16)
                 msg = {
-                    'id': hash(entry.get('title', '')),  # Pseudo-ID
+                    'id': stable_id,
                     'text': cleaned_text,
                     'date': pubdate,
-                    'link': entry.get('link', '') or f"https://t.me/{clean_name}",
+                    'link': link,
                     'title': entry.get('title', ''),
                 }
                 messages.append(msg)

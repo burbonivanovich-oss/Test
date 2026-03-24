@@ -8,6 +8,7 @@ from typing import List, Optional
 
 from telethon import TelegramClient
 from telethon.errors import ChannelPrivateError, ChannelInvalidError
+from telethon.sessions import StringSession
 
 
 class ChannelMonitor:
@@ -36,7 +37,7 @@ class ChannelMonitor:
         """Connect to Telegram."""
         if self.client is None:
             self.client = TelegramClient(
-                self.session_string,
+                StringSession(self.session_string),
                 self.api_id,
                 self.api_hash,
             )
