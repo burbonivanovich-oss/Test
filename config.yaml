@@ -193,3 +193,18 @@ rss_feeds:
 
     - name: "Retail.ru"
       url: "https://www.retail.ru/rss/news.xml"
+
+    - name: "РИА Новости"
+      url: "https://ria.ru/export/rss2/index.xml"
+
+    - name: "ТАСС"
+      url: "https://tass.ru/rss/v2.xml"
+
+    - name: "Интерфакс"
+      url: "https://www.interfax.ru/rss.asp"
+
+    - name: "Лента.ру"
+      url: "https://lenta.ru/rss"
+
+    - name: "Коммерсантъ"
+      url: "https://www.kommersant.ru/RSS/main.xml"
