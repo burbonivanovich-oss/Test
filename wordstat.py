@@ -291,10 +291,28 @@ def _sync_generate_report(client: WordstatClient, cfg: dict) -> str:
             client, analytics, int(wc_cfg.get("data_ready_weekday", 3))
         )
 
-    return build_report(
-        [process_cluster(client, c) for c in clusters],
-        summary_lines,
-    )
+    # Daily dynamics section (last 7 days by day)
+    daily_lines: list[str] = []
+    dd_cfg = cfg.get("daily_dynamics", {})
+    if dd_cfg:
+        phrase = dd_cfg.get("phrase", "тс пиот")
+        regions = dd_cfg.get("regions") or []
+        devices = dd_cfg.get("devices", ["all"])
+        today = date.today()
+        try:
+            items = client.dynamics(phrase, period="daily",
+                                    from_date=(today - timedelta(days=8)).isoformat(),
+                                    to_date=today.isoformat(),
+                                    regions=regions, devices=devices)
+            daily_lines = format_daily_dynamics(phrase, items)
+        except Exception as exc:  # noqa: BLE001
+            daily_lines = [f"❌ Ошибка динамики по дням: {escape_html(str(exc))}"]
+
+    clusters_data = [process_cluster(client, c) for c in clusters]
+    if daily_lines:
+        clusters_data.append(daily_lines)
+
+    return build_report(clusters_data, summary_lines)
 
 
 async def generate_report(client: WordstatClient, cfg: dict) -> str:
