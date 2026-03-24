@@ -355,3 +355,42 @@ async def generate_daily_dynamics_report(client: WordstatClient, phrase: str,
     return await loop.run_in_executor(
         None, _sync_generate_daily_dynamics_report, client, phrase, regions, devices
     )
+
+
+# ---------------------------------------------------------------------------
+# Daily compact report (top queries + daily dynamics)
+# ---------------------------------------------------------------------------
+
+def _sync_generate_daily_compact_report(client: WordstatClient, cfg: dict) -> str:
+    """Compact daily digest: top queries from first cluster + daily dynamics."""
+    today = date.today()
+    title_date = today.strftime("%d.%m.%Y")
+    lines: list[str] = [f"📊 <b>Wordstat дайджест</b> — {escape_html(title_date)}", ""]
+
+    # Top requests — first cluster from config
+    clusters = cfg.get("clusters", [])
+    if clusters:
+        lines += process_cluster(client, clusters[0])
+        lines.append("")
+
+    # Daily dynamics
+    dd_cfg = cfg.get("daily_dynamics") or {}
+    phrase = dd_cfg.get("phrase", "тс пиот")
+    regions = dd_cfg.get("regions") or []
+    devices = dd_cfg.get("devices", ["all"])
+    try:
+        items = client.dynamics(phrase, period="daily",
+                                from_date=(today - timedelta(days=8)).isoformat(),
+                                to_date=today.isoformat(),
+                                regions=regions, devices=devices)
+        lines += format_daily_dynamics(phrase, items)
+    except Exception as exc:  # noqa: BLE001
+        lines.append(f"❌ Ошибка динамики: {escape_html(str(exc))}")
+
+    return "\n".join(lines)
+
+
+async def generate_daily_compact_report(client: WordstatClient, cfg: dict) -> str:
+    """Async wrapper — compact daily digest (top queries + dynamics)."""
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, _sync_generate_daily_compact_report, client, cfg)

@@ -16,9 +16,9 @@
 # ============================================================================
 
 schedule:
-  weekday: 3   # Thursday
-  hour: 4      # UTC → 09:20 GMT+5
-  minute: 20
+  weekday: 1   # Tuesday (test)
+  hour: 14     # UTC → 19:40 GMT+5
+  minute: 40
 
 wordstat:
   oauth_token: ""          # or set WORDSTAT_OAUTH_TOKEN env var
@@ -150,12 +150,12 @@ channel_monitor:
     - "Маркет"
 
   # Time window for scanning messages
-  hours_lookback: 60
+  hours_lookback: 36
 
   # Schedule for channel summary digest (runs every day)
   schedule:
-    hour: 4                 # UTC → 09:00 GMT+5
-    minute: 0
+    hour: 14                # UTC → 19:50 GMT+5
+    minute: 50
 
 # ============================================================================
 # FEATURE 3: DAILY DYNAMICS REPORT
@@ -165,7 +165,7 @@ channel_monitor:
 
 daily_dynamics:
   schedule:
-    hour: 4      # UTC → 09:30 GMT+5
+    hour: 14     # UTC → 19:30 GMT+5
     minute: 30
   phrase: "тс пиот"
   regions: []
@@ -187,9 +187,6 @@ rss_feeds:
 
     - name: "VC.ru"
       url: "https://vc.ru/rss"
-
-    - name: "RBC"
-      url: "https://rssexport.rbc.ru/rbcnews/news/20/full.rss"
 
     - name: "Retail.ru"
       url: "https://www.retail.ru/rss/news.xml"
