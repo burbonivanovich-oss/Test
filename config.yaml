@@ -16,9 +16,9 @@
 # ============================================================================
 
 schedule:
-  weekday: 0   # Monday
-  hour: 7      # UTC → 12:00 GMT+5
-  minute: 0
+  weekday: 3   # Thursday
+  hour: 4      # UTC → 09:20 GMT+5
+  minute: 20
 
 wordstat:
   oauth_token: ""          # or set WORDSTAT_OAUTH_TOKEN env var
@@ -152,8 +152,21 @@ channel_monitor:
   # Time window for scanning messages
   hours_lookback: 60
 
-  # Schedule for channel summary digest
+  # Schedule for channel summary digest (runs every day)
   schedule:
-    weekday: 1              # 0=Monday, 1=Tuesday, … 6=Sunday
     hour: 4                 # UTC → 09:00 GMT+5
     minute: 0
+
+# ============================================================================
+# FEATURE 3: DAILY DYNAMICS REPORT
+# ============================================================================
+# Sends daily breakdown (last 7 available days) for the top query "тс пиот".
+# Runs every day, slightly after the channel digest.
+
+daily_dynamics:
+  schedule:
+    hour: 4      # UTC → 09:30 GMT+5
+    minute: 30
+  phrase: "тс пиот"
+  regions: []
+  devices: ["all"]

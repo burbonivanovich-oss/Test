@@ -24,7 +24,7 @@ try:
 except ImportError:
     pass
 
-from wordstat import WordstatClient, generate_report, escape_html
+from wordstat import WordstatClient, generate_report, generate_daily_dynamics_report, escape_html
 from telegram_channel_monitor.channel_monitor import create_monitor
 from telegram_channel_monitor.message_filter import MessageFilter
 from telegram_channel_monitor.message_parser import parse_message_data
@@ -107,14 +107,35 @@ async def _scheduled_wordstat_report(context: ContextTypes.DEFAULT_TYPE) -> None
         print(f"ERROR in scheduled Wordstat report: {exc}", file=sys.stderr)
 
 
+async def _scheduled_daily_dynamics(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Scheduled job — send daily dynamics (last 7 days) for the top query."""
+    client = context.bot_data.get("wordstat_client")
+    cfg = context.bot_data.get("config")
+    chat_id = context.bot_data.get("chat_id")
+    if not client or not cfg or not chat_id:
+        return
+    dd_cfg = cfg.get("daily_dynamics", {})
+    phrase = dd_cfg.get("phrase", "тс пиот")
+    regions = dd_cfg.get("regions") or []
+    devices = dd_cfg.get("devices", ["all"])
+    try:
+        print(f"[{datetime.utcnow().strftime('%H:%M:%S')}] Sending daily dynamics report…")
+        report = await generate_daily_dynamics_report(client, phrase, regions, devices)
+        await send_telegram(context.bot.token, chat_id, report)
+        print("Done ✓")
+    except Exception as exc:
+        print(f"ERROR in scheduled daily dynamics: {exc}", file=sys.stderr)
+
+
 def setup_wordstat_feature(app: Application, client: WordstatClient, cfg: dict) -> None:
-    """Register all Wordstat handlers and the weekly scheduled digest."""
+    """Register all Wordstat handlers, the weekly scheduled digest, and daily dynamics."""
     app.add_handler(CommandHandler("report", report_command))
 
+    # Weekly Wordstat digest (Thursday by default)
     sched = cfg.get("schedule", {})
-    weekday = int(sched.get("weekday", 0))
-    hour = int(sched.get("hour", 7))
-    minute = int(sched.get("minute", 0))
+    weekday = int(sched.get("weekday", 3))
+    hour = int(sched.get("hour", 4))
+    minute = int(sched.get("minute", 20))
     app.job_queue.run_daily(
         _scheduled_wordstat_report,
         time=datetime.min.replace(hour=hour, minute=minute).time(),
@@ -122,6 +143,19 @@ def setup_wordstat_feature(app: Application, client: WordstatClient, cfg: dict) 
         name="wordstat_digest",
     )
     print(f"[Wordstat] Scheduled digest: weekday={weekday} at {hour:02d}:{minute:02d} UTC")
+
+    # Daily dynamics report
+    dd_cfg = cfg.get("daily_dynamics", {})
+    if dd_cfg:
+        dd_sched = dd_cfg.get("schedule", {})
+        dd_hour = int(dd_sched.get("hour", 4))
+        dd_minute = int(dd_sched.get("minute", 30))
+        app.job_queue.run_daily(
+            _scheduled_daily_dynamics,
+            time=datetime.min.replace(hour=dd_hour, minute=dd_minute).time(),
+            name="daily_dynamics_digest",
+        )
+        print(f"[DailyDynamics] Scheduled daily at {dd_hour:02d}:{dd_minute:02d} UTC")
 
 
 # ---------------------------------------------------------------------------
@@ -216,16 +250,14 @@ def setup_channel_feature(app: Application, monitor, cfg: dict) -> None:
 
     chan_cfg = cfg.get("channel_monitor", {})
     chan_sched = chan_cfg.get("schedule", {})
-    weekday = int(chan_sched.get("weekday", 1))
-    hour = int(chan_sched.get("hour", 10))
+    hour = int(chan_sched.get("hour", 4))
     minute = int(chan_sched.get("minute", 0))
     app.job_queue.run_daily(
         _scheduled_channel_summary,
         time=datetime.min.replace(hour=hour, minute=minute).time(),
-        days=(weekday,),
         name="channel_digest",
     )
-    print(f"[Channels] Scheduled digest: weekday={weekday} at {hour:02d}:{minute:02d} UTC")
+    print(f"[Channels] Scheduled digest: daily at {hour:02d}:{minute:02d} UTC")
 
 
 # ---------------------------------------------------------------------------

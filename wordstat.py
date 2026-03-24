@@ -106,6 +106,31 @@ def format_top_requests(phrase: str, items: list[dict], top_n: int = 10) -> list
     return lines
 
 
+def format_daily_dynamics(phrase: str, items: list[dict]) -> list[str]:
+    """Format last 7 available days with date labels."""
+    lines = [f"📅 <b>{escape_html(phrase)}</b> — динамика по дням"]
+    if not items:
+        lines.append("  <i>нет данных</i>")
+        return lines
+    last7 = items[-7:]
+    for item in last7:
+        raw_date = item.get("date", "?")
+        try:
+            d = date.fromisoformat(raw_date)
+            label = d.strftime("%d.%m.%Y")
+        except Exception:
+            label = raw_date
+        lines.append(f"  {label}: {_fmt_number(item.get('count', 0))}")
+    if len(last7) >= 2:
+        first_count = last7[0].get("count", 0)
+        last_count = last7[-1].get("count", 0)
+        if first_count:
+            delta = (last_count - first_count) / first_count * 100
+            arrow = "↑" if delta >= 0 else "↓"
+            lines.append(f"  Тренд: {arrow} {abs(delta):.1f}% за период")
+    return lines
+
+
 def format_dynamics(phrase: str, items: list[dict]) -> list[str]:
     lines = [f"📈 <b>{escape_html(phrase)}</b> — динамика"]
     if not items:
@@ -276,3 +301,39 @@ async def generate_report(client: WordstatClient, cfg: dict) -> str:
     """Async wrapper — offloads blocking HTTP calls to a thread-pool executor."""
     loop = asyncio.get_running_loop()
     return await loop.run_in_executor(None, _sync_generate_report, client, cfg)
+
+
+# ---------------------------------------------------------------------------
+# Daily dynamics report
+# ---------------------------------------------------------------------------
+
+def _sync_generate_daily_dynamics_report(client: WordstatClient, phrase: str,
+                                          regions: list[int] = None,
+                                          devices: list[str] = None) -> str:
+    today = date.today()
+    from_date = (today - timedelta(days=8)).isoformat()
+    to_date = today.isoformat()
+    title_date = today.strftime("%d.%m.%Y")
+
+    lines = [f"📈 <b>Динамика запросов по дням</b> — {escape_html(title_date)}", ""]
+    try:
+        items = client.dynamics(phrase, period="daily",
+                                from_date=from_date, to_date=to_date,
+                                regions=regions or [], devices=devices or ["all"])
+        lines += format_daily_dynamics(phrase, items)
+    except requests.HTTPError as exc:
+        lines.append(f"❌ Ошибка API: {escape_html(str(exc))}")
+    except Exception as exc:  # noqa: BLE001
+        lines.append(f"❌ Ошибка: {escape_html(str(exc))}")
+
+    return "\n".join(lines)
+
+
+async def generate_daily_dynamics_report(client: WordstatClient, phrase: str,
+                                          regions: list[int] = None,
+                                          devices: list[str] = None) -> str:
+    """Async wrapper for daily dynamics report."""
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(
+        None, _sync_generate_daily_dynamics_report, client, phrase, regions, devices
+    )
