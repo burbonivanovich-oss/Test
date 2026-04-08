@@ -1,34 +1,36 @@
-# Wordstat → Telegram Bot Configuration
+# Wordstat + Telegram Channel Monitor Bot Configuration
 #
-# Secrets are loaded from environment variables (recommended):
-#   WORDSTAT_OAUTH_TOKEN, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
+# Full-featured bot that:
+#   1. Collects data from Yandex Wordstat API
+#   2. Monitors Telegram channels for keyword mentions
+#   3. Sends combined daily reports
 #
-# For local development, copy .env.example → .env and fill in values.
-# On bothost.ru set these in the "Environment Variables" section of your bot settings.
-# Values below are used only as fallback when env vars are not set.
+# Credentials stored in environment variables (see .env or bothost.ru):
+#   - WORDSTAT_OAUTH_TOKEN (for Wordstat API)
+#   - TELEGRAM_BOT_TOKEN (for Telegram bot)
+#   - TELEGRAM_CHAT_ID (where to send reports)
+#   - TELETHON_API_ID, TELETHON_API_HASH, TELETHON_SESSION_STRING (for channel monitoring)
 
-# Schedule for daemon mode (bothost.ru / long-running process).
-# weekday: 0=Monday, 1=Tuesday … 6=Sunday
-# hour/minute: UTC time
+# ============================================================================
+# FEATURE 1: WORDSTAT ANALYTICS
+# ============================================================================
+
 schedule:
-  weekday: 0   # Monday
-  hour: 7
-  minute: 0
+  weekday: 3   # Thursday 09.04.2026 (test)
+  hour: 19     # UTC → 00:15 GMT+5
+  minute: 15
 
 wordstat:
   oauth_token: ""          # or set WORDSTAT_OAUTH_TOKEN env var
   base_url: "https://api.wordstat.yandex.net"
   # Wordstat weekly data is typically published Wed/Thu.
-  # If today's weekday (0=Mon … 6=Sun) is less than this value,
-  # the analytics summary shifts back one week to avoid empty rows.
   data_ready_weekday: 3    # 3 = Thursday
 
 telegram:
   bot_token: ""            # or set TELEGRAM_BOT_TOKEN env var
-  chat_id: ""              # or set TELEGRAM_CHAT_ID env var (numeric id, e.g. -1001234567890)
+  chat_id: ""              # or set TELEGRAM_CHAT_ID env var
 
-# Analytics summary — compared current week vs previous week across query groups.
-# Each group aggregates total weekly counts for all its phrases.
+# Analytics summary — compared current week vs previous week
 analytics:
   - name: "Информационные запросы"
     phrases:
@@ -37,7 +39,7 @@ analytics:
       - "тс пиот"
       - "тс пиот перенос"
       - "тс пиот честный знак что это"
-    regions: []        # empty = all regions
+    regions: []
     devices: ["all"]
 
   - name: "Коммерческие запросы"
@@ -76,13 +78,124 @@ analytics:
     regions: []
     devices: ["all"]
 
-# Query clusters — each cluster produces one section in the Telegram summary.
-# Supported methods per cluster: topRequests | dynamics | regions
+# Query clusters — each produces one section in the report
 clusters:
   - name: "ТС ПИОТ — топ запросов"
     method: topRequests
     phrases:
       - "тс пиот"
-    regions: []             # empty = all regions
+    regions: []
     devices: ["all"]
 
+# ============================================================================
+# FEATURE 2: TELEGRAM CHANNEL MONITORING
+# ============================================================================
+# Monitor Telegram channels for keyword mentions.
+#
+# Authentication (Telethon):
+#   1. Run: python3 setup_session_auto.py <API_ID> <API_HASH> <PHONE>
+#   2. Save TELETHON_SESSION_STRING to environment variables
+#
+# Or use SSH:
+#   python3 setup_session_qr.py <API_ID> <API_HASH>
+
+channel_monitor:
+  enabled: true             # Set to false to disable channel monitoring
+
+  # List of 12 channels to monitor
+  channels:
+    - name: "РИА Новости"
+      username: "@rian_ru"
+
+    - name: "ТАСС"
+      username: "@tass_agency"
+
+    - name: "РБК"
+      username: "@rbc_news"
+
+    - name: "Коммерсант"
+      username: "@kommersant"
+
+    - name: "InfoStart"
+      username: "@infostart_news"
+
+    - name: "СБИС"
+      username: "@sbis_news"
+
+    - name: "Честный знак"
+      username: "@chestnyznak_official"
+
+    - name: "АТОЛ"
+      username: "@atol_online"
+
+    - name: "МойСклад"
+      username: "@moysklad_news"
+
+    - name: "EcomCrew"
+      username: "@ecomcrew"
+
+    - name: "Habr"
+      username: "@habr_com"
+
+    - name: "Контур.Маркет"
+      username: "@konturmarket"
+
+  # Keywords to search for
+  keywords:
+    - "тс пиот"
+    - "ТС ПИОТ"
+    - "Маркет"
+
+  # Time window for scanning messages
+  hours_lookback: 36
+
+  # Schedule for channel summary digest (runs every day)
+  schedule:
+    hour: 19                # UTC → 00:15 GMT+5 (test 09.04.2026)
+    minute: 15
+
+# ============================================================================
+# FEATURE 3: DAILY DYNAMICS REPORT
+# ============================================================================
+# Sends daily breakdown (last 7 available days) for the top query "тс пиот".
+# Runs every day, slightly after the channel digest.
+
+daily_dynamics:
+  schedule:
+    hour: 19     # UTC → 00:15 GMT+5 (test 09.04.2026)
+    minute: 15
+  phrase: "тс пиот"
+  regions: []
+  devices: ["all"]
+
+# ============================================================================
+# FEATURE 4: RSS FEED MONITORING
+# ============================================================================
+# Monitor arbitrary RSS/Atom feeds for keyword mentions.
+# Results are merged into the daily channel digest.
+# Uses the same keywords and hours_lookback as channel_monitor.
+
+rss_feeds:
+  enabled: true
+
+  feeds:
+    - name: "Habr"
+      url: "https://habr.com/ru/rss/all/all/"
+
+    - name: "VC.ru"
+      url: "https://vc.ru/rss"
+
+    - name: "РИА Новости"
+      url: "https://ria.ru/export/rss2/index.xml"
+
+    - name: "ТАСС"
+      url: "https://tass.ru/rss/v2.xml"
+
+    - name: "Интерфакс"
+      url: "https://www.interfax.ru/rss.asp"
+
+    - name: "Лента.ру"
+      url: "https://lenta.ru/rss"
+
+    - name: "Коммерсантъ"
+      url: "https://www.kommersant.ru/RSS/main.xml"
