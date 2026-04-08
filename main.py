@@ -205,23 +205,26 @@ def setup_wordstat_feature(app: Application, client: WordstatClient, cfg: dict) 
 # Feature 2 — Telegram channel monitoring
 # ---------------------------------------------------------------------------
 
-async def _collect_channel_mentions(monitor, cfg: dict) -> list:
+async def _collect_channel_mentions(monitor, cfg: dict) -> tuple:
+    """Returns (results, errors)."""
     chan_cfg = cfg.get("channel_monitor", {})
     channels = chan_cfg.get("channels", [])
     keywords = chan_cfg.get("keywords", [])
     hours_lookback = chan_cfg.get("hours_lookback", 36)
 
     if not channels or not keywords:
-        return []
+        return [], []
 
     print(f"[Monitor:TG] Начинаю проверку {len(channels)} каналов (окно: {hours_lookback}ч)")
     results = []
+    errors = []
     for ch in channels:
         channel_name = ch.get("name", "Unknown")
         username = ch.get("username", "")
         channel_identifier = username or ch.get("channel_id")
         if not channel_identifier:
             print(f"[Monitor:TG] ⚠️  {channel_name} — нет идентификатора, пропускаю")
+            errors.append(f"{channel_name} — нет идентификатора")
             continue
         try:
             print(f"[Monitor:TG] Проверяю {channel_name} ({channel_identifier})…", flush=True)
@@ -236,10 +239,12 @@ async def _collect_channel_mentions(monitor, cfg: dict) -> list:
             results.extend(matches)
             print(f"[Monitor:TG] {channel_name}: {fetched} сообщений, совпадений: {len(matches)}")
         except Exception as exc:
-            print(f"[Monitor:TG] ❌ {channel_name}: {exc}", file=sys.stderr)
+            msg = str(exc)
+            print(f"[Monitor:TG] ❌ {channel_name}: {msg}", file=sys.stderr)
+            errors.append(f"{channel_name} ({username}): {msg[:120]}")
 
     print(f"[Monitor:TG] Готово. Итого совпадений из TG: {len(results)}")
-    return results
+    return results, errors
 
 
 async def _collect_rss_feed_mentions(cfg: dict) -> list:
@@ -261,6 +266,7 @@ async def _collect_rss_feed_mentions(cfg: dict) -> list:
     print(f"[Monitor:RSS] Начинаю проверку {len(feeds)} лент (окно: {hours_lookback}ч)")
     monitor = RSSFeedMonitor()
     results = []
+    errors = []
     try:
         await monitor.connect()
         for feed in feeds:
@@ -268,6 +274,7 @@ async def _collect_rss_feed_mentions(cfg: dict) -> list:
             url = feed.get("url", "")
             if not url:
                 print(f"[Monitor:RSS] ⚠️  {name} — нет URL, пропускаю")
+                errors.append(f"RSS {name} — нет URL")
                 continue
             try:
                 print(f"[Monitor:RSS] Проверяю {name}…", flush=True)
@@ -279,32 +286,43 @@ async def _collect_rss_feed_mentions(cfg: dict) -> list:
                 results.extend(matches)
                 print(f"[Monitor:RSS] {name}: {fetched} сообщений, совпадений: {len(matches)}")
             except Exception as exc:
-                print(f"[Monitor:RSS] ❌ {name}: {exc}", file=sys.stderr)
+                msg = str(exc)
+                print(f"[Monitor:RSS] ❌ {name}: {msg}", file=sys.stderr)
+                errors.append(f"RSS {name}: {msg[:120]}")
     finally:
         await monitor.close()
 
     print(f"[Monitor:RSS] Готово. Итого совпадений из RSS: {len(results)}")
-    return results
+    return results, errors
 
 
 async def _build_channel_summary(monitor, cfg: dict) -> str:
     hours_lookback = cfg.get("channel_monitor", {}).get("hours_lookback", 36)
 
-    channel_results, rss_results = await asyncio.gather(
+    (channel_results, tg_errors), (rss_results, rss_errors) = await asyncio.gather(
         _collect_channel_mentions(monitor, cfg),
         _collect_rss_feed_mentions(cfg),
     )
     results = channel_results + rss_results
+    all_errors = tg_errors + rss_errors
     print(f"[Monitor] Всего совпадений (TG + RSS): {len(results)}")
 
+    parts = []
     if not results:
-        return (
+        parts.append(
             f"📊 <b>Мониторинг Telegram-каналов и RSS</b>\n\n"
             f"🔍 <i>Упоминания не найдены за последние {hours_lookback} часов</i>"
         )
-    return "\n\n".join(
-        format_summary_with_pagination(group_results_by_keyword(results), hours_lookback)
-    )
+    else:
+        parts.extend(format_summary_with_pagination(group_results_by_keyword(results), hours_lookback))
+
+    if all_errors:
+        error_lines = ["⚠️ <b>Ошибки при проверке источников:</b>"]
+        for e in all_errors:
+            error_lines.append(f"  · {escape_html(e)}")
+        parts.append("\n".join(error_lines))
+
+    return "\n\n".join(parts)
 
 
 async def channels_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
