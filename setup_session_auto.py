@@ -21,6 +21,7 @@ import asyncio
 import sys
 import os
 from telethon import TelegramClient
+from telethon.sessions import StringSession
 
 
 async def main():
@@ -36,8 +37,6 @@ async def main():
 
     api_hash = sys.argv[2]
     phone = sys.argv[3]
-    session_file = "telegram_session"
-
     print("=" * 70)
     print("Telegram Session Setup (Auto)")
     print("=" * 70)
@@ -46,7 +45,7 @@ async def main():
     print(f"Phone: {phone}")
     print()
 
-    client = TelegramClient(session_file, api_id, api_hash)
+    client = TelegramClient(StringSession(), api_id, api_hash)
 
     try:
         await client.connect()
@@ -110,9 +109,7 @@ async def main():
             print()
             print(f"Authenticated as: {me.first_name} (@{me.username or 'no username'})")
             print()
-            print(f"Session file: {session_file}.session")
-            print()
-            print("Save session string (for bothost.ru or .env):")
+            print("Copy the session string below and set it as TELETHON_SESSION_STRING:")
             print()
 
             # Get session string
