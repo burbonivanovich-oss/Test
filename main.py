@@ -309,7 +309,14 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         "👋 Привет! Я — Wordstat + мониторинг каналов бот.\n\n"
         "/report — отчёт из Wordstat\n"
         "/channels — упоминания в Telegram-каналах\n"
+        "/info — что делает этот бот\n"
         "/help — справка"
+    )
+
+
+async def info_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.message.reply_text(
+        "Бот следит за тем, как люди ищут ТС ПИОТ в интернете и что пишут о нём в медиа.",
     )
 
 
@@ -318,6 +325,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "📖 <b>Доступные команды:</b>\n\n"
         "/report — получить Wordstat-отчёт сейчас\n"
         "/channels — мониторинг Telegram-каналов сейчас\n"
+        "/info — что делает этот бот\n"
         "/start — приветствие\n"
         "/help — эта справка",
         parse_mode="HTML",
@@ -373,6 +381,7 @@ async def main() -> None:
 
     # General commands
     app.add_handler(CommandHandler("start", start_command))
+    app.add_handler(CommandHandler("info", info_command))
     app.add_handler(CommandHandler("help", help_command))
 
     # Feature 1: Wordstat
