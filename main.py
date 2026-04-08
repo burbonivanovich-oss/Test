@@ -403,9 +403,60 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 
 async def info_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text(
+    cfg: dict = context.bot_data.get("config") or {}
+
+    lines = [
+        "ℹ️ <b>О боте</b>",
+        "",
         "Бот следит за тем, как люди ищут ТС ПИОТ в интернете и что пишут о нём в медиа.",
-    )
+        "",
+    ]
+
+    # --- Wordstat: поисковые запросы ---
+    analytics = cfg.get("analytics", [])
+    dd_phrase = (cfg.get("daily_dynamics") or {}).get("phrase", "")
+    if analytics or dd_phrase:
+        lines.append("🔍 <b>Wordstat — отслеживаемые запросы</b>")
+        if dd_phrase:
+            lines.append(f"  Ежедневная динамика: <i>{escape_html(dd_phrase)}</i>")
+        for group in analytics:
+            gname = group.get("name", "")
+            phrases = group.get("phrases", [])
+            if phrases:
+                lines.append(f"\n  <b>{escape_html(gname)}</b>:")
+                for p in phrases:
+                    lines.append(f"    · {escape_html(p)}")
+        lines.append("")
+
+    # --- Telegram-каналы ---
+    chan_cfg = cfg.get("channel_monitor", {})
+    channels = chan_cfg.get("channels", [])
+    if channels:
+        lines.append("📢 <b>Telegram-каналы</b>")
+        for ch in channels:
+            name = ch.get("name", "")
+            username = ch.get("username", "")
+            lines.append(f"  · {escape_html(name)} {escape_html(username)}")
+        lines.append("")
+
+    # --- RSS-ленты ---
+    rss_cfg = cfg.get("rss_feeds", {})
+    feeds = rss_cfg.get("feeds", []) if rss_cfg.get("enabled") else []
+    if feeds:
+        lines.append("📡 <b>RSS-ленты</b>")
+        for feed in feeds:
+            lines.append(f"  · {escape_html(feed.get('name', ''))}")
+        lines.append("")
+
+    # --- Ключевые слова мониторинга ---
+    keywords = chan_cfg.get("keywords", [])
+    if keywords:
+        kw_str = ", ".join(f"«{escape_html(k)}»" for k in keywords)
+        lines.append(f"🔑 <b>Ключевые слова в медиа:</b> {kw_str}")
+        hours = chan_cfg.get("hours_lookback", 36)
+        lines.append(f"  Окно поиска: последние {hours} часов")
+
+    await update.message.reply_text("\n".join(lines), parse_mode="HTML")
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
