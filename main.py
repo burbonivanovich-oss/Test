@@ -214,22 +214,31 @@ async def _collect_channel_mentions(monitor, cfg: dict) -> list:
     if not channels or not keywords:
         return []
 
+    print(f"[Monitor:TG] Начинаю проверку {len(channels)} каналов (окно: {hours_lookback}ч)")
     results = []
     for ch in channels:
         channel_name = ch.get("name", "Unknown")
         username = ch.get("username", "")
         channel_identifier = username or ch.get("channel_id")
         if not channel_identifier:
+            print(f"[Monitor:TG] ⚠️  {channel_name} — нет идентификатора, пропускаю")
             continue
         try:
+            print(f"[Monitor:TG] Проверяю {channel_name} ({channel_identifier})…", flush=True)
             messages = await monitor.get_messages_from_channel(channel_identifier, limit=100)
+            fetched = len(messages) if messages else 0
             if not messages:
+                print(f"[Monitor:TG] {channel_name}: 0 сообщений")
                 continue
+            matches = []
             for msg, keyword in MessageFilter.filter_messages(messages, keywords, hours_lookback):
-                results.append((parse_message_data(msg, channel_name, username), keyword))
+                matches.append((parse_message_data(msg, channel_name, username), keyword))
+            results.extend(matches)
+            print(f"[Monitor:TG] {channel_name}: {fetched} сообщений, совпадений: {len(matches)}")
         except Exception as exc:
-            print(f"⚠️  Error processing {channel_name}: {exc}", file=sys.stderr)
+            print(f"[Monitor:TG] ❌ {channel_name}: {exc}", file=sys.stderr)
 
+    print(f"[Monitor:TG] Готово. Итого совпадений из TG: {len(results)}")
     return results
 
 
@@ -249,6 +258,7 @@ async def _collect_rss_feed_mentions(cfg: dict) -> list:
     if not keywords:
         return []
 
+    print(f"[Monitor:RSS] Начинаю проверку {len(feeds)} лент (окно: {hours_lookback}ч)")
     monitor = RSSFeedMonitor()
     results = []
     try:
@@ -257,16 +267,23 @@ async def _collect_rss_feed_mentions(cfg: dict) -> list:
             name = feed.get("name", "RSS")
             url = feed.get("url", "")
             if not url:
+                print(f"[Monitor:RSS] ⚠️  {name} — нет URL, пропускаю")
                 continue
             try:
+                print(f"[Monitor:RSS] Проверяю {name}…", flush=True)
                 messages = await monitor.get_messages(name, url)
+                fetched = len(messages) if messages else 0
+                matches = []
                 for msg, keyword in MessageFilter.filter_messages(messages, keywords, hours_lookback):
-                    results.append((parse_message_data(msg, name, url), keyword))
+                    matches.append((parse_message_data(msg, name, url), keyword))
+                results.extend(matches)
+                print(f"[Monitor:RSS] {name}: {fetched} сообщений, совпадений: {len(matches)}")
             except Exception as exc:
-                print(f"⚠️  Error processing RSS feed {name}: {exc}", file=sys.stderr)
+                print(f"[Monitor:RSS] ❌ {name}: {exc}", file=sys.stderr)
     finally:
         await monitor.close()
 
+    print(f"[Monitor:RSS] Готово. Итого совпадений из RSS: {len(results)}")
     return results
 
 
@@ -278,6 +295,7 @@ async def _build_channel_summary(monitor, cfg: dict) -> str:
         _collect_rss_feed_mentions(cfg),
     )
     results = channel_results + rss_results
+    print(f"[Monitor] Всего совпадений (TG + RSS): {len(results)}")
 
     if not results:
         return (
