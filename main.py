@@ -89,8 +89,11 @@ async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
     try:
         await update.message.reply_text("⏳ Подготавливаю отчет...")
-        report_text = await generate_report(client, cfg)
-        await send_telegram(context.bot, str(update.effective_chat.id), report_text)
+        report_text, chart_url = await generate_report(client, cfg)
+        chat_id = str(update.effective_chat.id)
+        if chart_url:
+            await context.bot.send_photo(chat_id=chat_id, photo=chart_url)
+        await send_telegram(context.bot, chat_id, report_text)
         print("[OK] /report sent")
     except Exception as exc:
         print(f"[ERROR] /report: {exc}", file=sys.stderr)
@@ -130,7 +133,10 @@ async def _scheduled_wordstat_report(context: ContextTypes.DEFAULT_TYPE) -> None
         return
     try:
         print(f"[{datetime.utcnow().strftime('%H:%M:%S')}] Sending scheduled Wordstat report…")
-        await send_telegram(context.bot, chat_id, await generate_report(client, cfg))
+        report_text, chart_url = await generate_report(client, cfg)
+        if chart_url:
+            await context.bot.send_photo(chat_id=chat_id, photo=chart_url)
+        await send_telegram(context.bot, chat_id, report_text)
         print("Done ✓")
     except Exception as exc:
         print(f"ERROR in scheduled Wordstat report: {exc}", file=sys.stderr)
@@ -540,8 +546,11 @@ async def main() -> None:
 
     # Dry-run: just print the report and exit
     if args.dry_run:
+        report_text, chart_url = await generate_report(client, cfg)
         print("\n" + "=" * 60)
-        print(await generate_report(client, cfg))
+        print(report_text)
+        if chart_url:
+            print("\n[Chart URL]:", chart_url[:120], "…")
         return
 
     # --- Build the bot application ---

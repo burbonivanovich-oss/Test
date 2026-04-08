@@ -6,6 +6,8 @@ Imported by main.py to power the /report command and scheduled digests.
 """
 
 import asyncio
+import json
+import urllib.parse
 from datetime import date, timedelta
 
 import requests
@@ -230,13 +232,18 @@ def build_analytics_summary(client: WordstatClient, analytics: list[dict],
         current_total = prev_total = 0
         errors: list[str] = []
 
+        phrase_rows: list[tuple[str, int, int]] = []
         for phrase in phrases:
             try:
                 items = client.dynamics(phrase, period="weekly", from_date=from_date,
                                         to_date=to_date, regions=regions, devices=devices)
+                curr = prev = 0
                 if len(items) >= 2:
-                    prev_total += items[-2].get("count", 0)
-                    current_total += items[-1].get("count", 0)
+                    prev = items[-2].get("count", 0)
+                    curr = items[-1].get("count", 0)
+                prev_total += prev
+                current_total += curr
+                phrase_rows.append((phrase, curr, prev))
             except requests.HTTPError as exc:
                 errors.append(f"  ❌ Ошибка API для «{escape_html(phrase)}»: {escape_html(str(exc))}")
             except Exception as exc:  # noqa: BLE001
@@ -250,13 +257,20 @@ def build_analytics_summary(client: WordstatClient, analytics: list[dict],
         else:
             change_str = "н/д"
 
-        lines += [
-            f"<b>{escape_html(name)}:</b>",
-            f"  Текущая неделя: {_fmt_number(current_total)}",
-            f"  Прошлая неделя: {_fmt_number(prev_total)}",
-            f"  Изменение: {escape_html(change_str)}",
-        ]
+        lines.append(f"<b>{escape_html(name)}:</b>")
+        for ph, curr, prev in phrase_rows:
+            if prev:
+                ph_pct = (curr - prev) / prev * 100
+                ph_arrow = "↑" if ph_pct >= 0 else "↓"
+                ph_sign = "+" if ph_pct >= 0 else ""
+                ph_change = f"{ph_arrow} {ph_sign}{ph_pct:.1f}%"
+            else:
+                ph_change = "н/д"
+            lines.append(f"  {escape_html(ph)}: {_fmt_number(curr)} (прош. {_fmt_number(prev)}) {escape_html(ph_change)}")
         lines += errors
+        lines.append(
+            f"  <i>Итого: {_fmt_number(current_total)}  прошлая {_fmt_number(prev_total)}  {escape_html(change_str)}</i>"
+        )
         lines.append("")
 
     return lines
@@ -279,11 +293,14 @@ def build_report(clusters_data: list[list[str]],
     return "\n".join(lines)
 
 
-def _sync_generate_report(client: WordstatClient, cfg: dict) -> str:
-    """Synchronous entry point — all blocking Wordstat HTTP calls happen here."""
+def _sync_generate_report(client: WordstatClient, cfg: dict) -> "tuple[str, str | None]":
+    """Synchronous entry point — all blocking Wordstat HTTP calls happen here.
+    Returns (report_text, chart_url_or_None).
+    """
     clusters = cfg.get("clusters", [])
     analytics = cfg.get("analytics", [])
     wc_cfg = cfg.get("wordstat", {})
+    today = date.today()
 
     summary_lines: list[str] = []
     if analytics:
@@ -291,32 +308,70 @@ def _sync_generate_report(client: WordstatClient, cfg: dict) -> str:
             client, analytics, int(wc_cfg.get("data_ready_weekday", 3))
         )
 
-    # Daily dynamics section (last 7 days by day)
+    # Fetch 35 days of daily data for the main phrase
+    dd_cfg = cfg.get("daily_dynamics") or {}
+    phrase = dd_cfg.get("phrase", "тс пиот")
+    regions = dd_cfg.get("regions") or []
+    devices = dd_cfg.get("devices", ["all"])
+
+    items: list[dict] = []
+    chart_url: "str | None" = None
+    try:
+        raw_items = client.dynamics(
+            phrase, period="daily",
+            from_date=(today - timedelta(days=35)).isoformat(),
+            to_date=today.isoformat(),
+            regions=regions, devices=devices,
+        )
+        cutoff = today - timedelta(days=_DATA_LAG)
+        items = [i for i in raw_items if date.fromisoformat(i["date"]) <= cutoff]
+        if items:
+            chart_url = generate_chart_url(phrase, items)
+    except Exception as exc:  # noqa: BLE001
+        summary_lines.append(f"❌ Ошибка динамики: {escape_html(str(exc))}")
+
+    # Build daily analytics lines (same blocks as daily compact report)
     daily_lines: list[str] = []
-    dd_cfg = cfg.get("daily_dynamics", {})
-    if dd_cfg:
-        phrase = dd_cfg.get("phrase", "тс пиот")
-        regions = dd_cfg.get("regions") or []
-        devices = dd_cfg.get("devices", ["all"])
-        today = date.today()
-        try:
-            items = client.dynamics(phrase, period="daily",
-                                    from_date=(today - timedelta(days=8)).isoformat(),
-                                    to_date=today.isoformat(),
-                                    regions=regions, devices=devices)
-            daily_lines = format_daily_dynamics(phrase, items)
-        except Exception as exc:  # noqa: BLE001
-            daily_lines = [f"❌ Ошибка динамики по дням: {escape_html(str(exc))}"]
+    if items:
+        daily_lines += format_daily_dynamics(phrase, items)
+        daily_lines.append("")
+
+        if today.weekday() == 0:
+            wow = format_wow_comparison(phrase, items)
+            if wow:
+                daily_lines += wow
+                daily_lines.append("")
+
+        profile = format_weekday_profile(items)
+        if profile:
+            daily_lines += profile
+            daily_lines.append("")
+
+        anomalies = format_anomalies(items)
+        if anomalies:
+            daily_lines += anomalies
+            daily_lines.append("")
+
+        last30 = items[-30:]
+        if last30:
+            total_30 = sum(i.get("count", 0) for i in last30)
+            avg_30 = total_30 / len(last30)
+            daily_lines.append(
+                f"📈 За {len(last30)} дней: {_fmt_number(total_30)} запросов  "
+                f"(в среднем {_fmt_number(avg_30)}/день)"
+            )
 
     clusters_data = [process_cluster(client, c) for c in clusters]
     if daily_lines:
         clusters_data.append(daily_lines)
 
-    return build_report(clusters_data, summary_lines)
+    return build_report(clusters_data, summary_lines), chart_url
 
 
-async def generate_report(client: WordstatClient, cfg: dict) -> str:
-    """Async wrapper — offloads blocking HTTP calls to a thread-pool executor."""
+async def generate_report(client: WordstatClient, cfg: dict) -> "tuple[str, str | None]":
+    """Async wrapper — offloads blocking HTTP calls to a thread-pool executor.
+    Returns (report_text, chart_url_or_None).
+    """
     loop = asyncio.get_running_loop()
     return await loop.run_in_executor(None, _sync_generate_report, client, cfg)
 
@@ -355,6 +410,47 @@ async def generate_daily_dynamics_report(client: WordstatClient, phrase: str,
     return await loop.run_in_executor(
         None, _sync_generate_daily_dynamics_report, client, phrase, regions, devices
     )
+
+
+# ---------------------------------------------------------------------------
+# QuickChart.io URL generator (no dependencies)
+# ---------------------------------------------------------------------------
+
+def generate_chart_url(phrase: str, items: list[dict]) -> "str | None":
+    """Build a QuickChart.io bar-chart URL for the last 30 days. Returns None on failure."""
+    last30 = items[-30:]
+    if not last30:
+        return None
+    labels, data, colors = [], [], []
+    for item in last30:
+        try:
+            d = date.fromisoformat(item["date"])
+            labels.append(d.strftime("%d.%m"))
+            data.append(item.get("count", 0))
+            colors.append("rgba(176,196,222,0.9)" if d.weekday() >= 5
+                          else "rgba(74,144,217,0.9)")
+        except Exception:
+            continue
+    if not data:
+        return None
+    chart_cfg = {
+        "type": "bar",
+        "data": {
+            "labels": labels,
+            "datasets": [{"data": data, "backgroundColor": colors, "borderWidth": 0}],
+        },
+        "options": {
+            "title": {"display": True, "text": f"{phrase} \u2014 \u0434\u0438\u043d\u0430\u043c\u0438\u043a\u0430 \u0437\u0430 30 \u0434\u043d\u0435\u0439"},
+            "legend": {"display": False},
+            "scales": {
+                "yAxes": [{"ticks": {"beginAtZero": True}}],
+                "xAxes": [{"ticks": {"maxRotation": 45, "autoSkip": True, "maxTicksLimit": 10}}],
+            },
+        },
+    }
+    encoded = urllib.parse.quote(json.dumps(chart_cfg, ensure_ascii=False), safe="")
+    url = f"https://quickchart.io/chart?c={encoded}&width=800&height=350&backgroundColor=white"
+    return url if len(url) <= 4096 else None
 
 
 # ---------------------------------------------------------------------------
