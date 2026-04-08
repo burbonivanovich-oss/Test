@@ -71,6 +71,22 @@ async def send_telegram(bot_token: str, chat_id: str, text: str) -> None:
                 resp.raise_for_status()
 
 
+async def send_telegram_photo(bot_token: str, chat_id: str, photo_buf, caption: str = "") -> None:
+    """Send a PNG BytesIO as a photo via Telegram Bot API (multipart/form-data)."""
+    url = f"https://api.telegram.org/bot{bot_token}/sendPhoto"
+    async with aiohttp.ClientSession() as session:
+        data = aiohttp.FormData()
+        data.add_field("chat_id", chat_id)
+        data.add_field("parse_mode", "HTML")
+        if caption:
+            data.add_field("caption", caption[:1024])
+        data.add_field("photo", photo_buf, filename="chart.png", content_type="image/png")
+        async with session.post(url, data=data, timeout=aiohttp.ClientTimeout(total=60)) as resp:
+            if not resp.ok:
+                print(f"Telegram photo error {resp.status}: {await resp.text()}", file=sys.stderr)
+            resp.raise_for_status()
+
+
 # ---------------------------------------------------------------------------
 # Feature 1 — Wordstat
 # ---------------------------------------------------------------------------
@@ -103,8 +119,14 @@ async def dynamics_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         return
     try:
         await update.message.reply_text("⏳ Подготавливаю ежедневную сводку...")
-        report = await generate_daily_compact_report(client, cfg)
-        await send_telegram(context.bot.token, str(update.effective_chat.id), report)
+        report, chart = await generate_daily_compact_report(client, cfg)
+        chat_id = str(update.effective_chat.id)
+        if chart is not None:
+            dd_cfg = cfg.get("daily_dynamics") or {}
+            phrase = dd_cfg.get("phrase", "тс пиот")
+            caption = f"📊 Динамика за 30 дней — {phrase}"
+            await send_telegram_photo(context.bot.token, chat_id, chart, caption=caption)
+        await send_telegram(context.bot.token, chat_id, report)
         print("[OK] /dynamics sent")
     except Exception as exc:
         print(f"[ERROR] /dynamics: {exc}", file=sys.stderr)
@@ -135,7 +157,12 @@ async def _scheduled_daily_dynamics(context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     try:
         print(f"[{datetime.utcnow().strftime('%H:%M:%S')}] Sending daily compact report…")
-        report = await generate_daily_compact_report(client, cfg)
+        report, chart = await generate_daily_compact_report(client, cfg)
+        if chart is not None:
+            dd_cfg = cfg.get("daily_dynamics") or {}
+            phrase = dd_cfg.get("phrase", "тс пиот")
+            caption = f"📊 Динамика за 30 дней — {phrase}"
+            await send_telegram_photo(context.bot.token, chat_id, chart, caption=caption)
         await send_telegram(context.bot.token, chat_id, report)
         print("Done ✓")
     except Exception as exc:
@@ -329,16 +356,31 @@ async def today_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await update.message.reply_text("❌ Бот не инициализирован. Попробуйте позже.")
         return
     await update.message.reply_text("⏳ Собираю сводку за сегодня...")
-    tasks = [generate_daily_compact_report(client, cfg)]
+
+    tasks: list = [generate_daily_compact_report(client, cfg)]
     if monitor and cfg.get("channel_monitor", {}).get("enabled"):
         tasks.append(_build_channel_summary(monitor, cfg))
     results = await asyncio.gather(*tasks, return_exceptions=True)
+
     chat_id = str(update.effective_chat.id)
-    for result in results:
+    dd_cfg = cfg.get("daily_dynamics") or {}
+    phrase = dd_cfg.get("phrase", "тс пиот")
+
+    for i, result in enumerate(results):
         if isinstance(result, Exception):
             print(f"[ERROR] /today partial: {result}", file=sys.stderr)
             await update.message.reply_text(f"❌ Ошибка: {escape_html(str(result))}")
+        elif i == 0:
+            # First result is (report, chart) from generate_daily_compact_report
+            report, chart = result
+            if chart is not None:
+                await send_telegram_photo(
+                    context.bot.token, chat_id, chart,
+                    caption=f"📊 Динамика за 30 дней — {phrase}",
+                )
+            await send_telegram(context.bot.token, chat_id, report)
         else:
+            # Channel summary is plain text
             for chunk in _split_message(result):
                 await send_telegram(context.bot.token, chat_id, chunk)
     print("[OK] /today sent")
