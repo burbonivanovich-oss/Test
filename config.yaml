@@ -116,9 +116,6 @@ channel_monitor:
     - name: "Коммерсант"
       username: "@kommersant"
 
-    - name: "1C"
-      username: "@1c_rus"
-
     - name: "InfoStart"
       username: "@infostart_news"
 
@@ -187,9 +184,6 @@ rss_feeds:
 
     - name: "VC.ru"
       url: "https://vc.ru/rss"
-
-    - name: "Retail.ru"
-      url: "https://www.retail.ru/rss/news.xml"
 
     - name: "РИА Новости"
       url: "https://ria.ru/export/rss2/index.xml"

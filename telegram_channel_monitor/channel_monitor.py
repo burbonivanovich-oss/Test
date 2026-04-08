@@ -96,11 +96,9 @@ class ChannelMonitor:
             return []
 
         except Exception as e:
-            print(
-                f"❌ Error fetching messages from {channel_identifier}: {e}",
-                file=sys.stderr,
-            )
-            return []
+            # Re-raise so the caller (_collect_channel_mentions) can log it
+            # as an error and include it in the Telegram report.
+            raise
 
     async def get_channel_entity(self, channel_identifier: str):
         """
