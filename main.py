@@ -247,21 +247,23 @@ async def _collect_channel_mentions(monitor, cfg: dict) -> tuple:
     return results, errors
 
 
-async def _collect_rss_feed_mentions(cfg: dict) -> list:
-    """Fetch all configured RSS feeds and filter by channel_monitor keywords."""
+async def _collect_rss_feed_mentions(cfg: dict) -> tuple:
+    """Fetch all configured RSS feeds and filter by channel_monitor keywords.
+    Returns (results, errors).
+    """
     rss_cfg = cfg.get("rss_feeds", {})
     if not rss_cfg.get("enabled"):
-        return []
+        return [], []
 
     feeds = rss_cfg.get("feeds", [])
     if not feeds:
-        return []
+        return [], []
 
     # Re-use the same keywords and hours_lookback as channel monitoring
     keywords = cfg.get("channel_monitor", {}).get("keywords", [])
     hours_lookback = cfg.get("channel_monitor", {}).get("hours_lookback", 36)
     if not keywords:
-        return []
+        return [], []
 
     print(f"[Monitor:RSS] Начинаю проверку {len(feeds)} лент (окно: {hours_lookback}ч)")
     monitor = RSSFeedMonitor()
@@ -280,6 +282,9 @@ async def _collect_rss_feed_mentions(cfg: dict) -> list:
                 print(f"[Monitor:RSS] Проверяю {name}…", flush=True)
                 messages = await monitor.get_messages(name, url)
                 fetched = len(messages) if messages else 0
+                if not messages:
+                    print(f"[Monitor:RSS] {name}: 0 сообщений")
+                    continue
                 matches = []
                 for msg, keyword in MessageFilter.filter_messages(messages, keywords, hours_lookback):
                     matches.append((parse_message_data(msg, name, url), keyword))
