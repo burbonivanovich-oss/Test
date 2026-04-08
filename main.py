@@ -13,7 +13,6 @@ import os
 import sys
 from datetime import datetime
 
-import aiohttp
 import yaml
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
@@ -55,36 +54,25 @@ def _split_message(text: str, limit: int = 4000) -> list[str]:
     return chunks
 
 
-async def send_telegram(bot_token: str, chat_id: str, text: str) -> None:
-    """Send text to Telegram (non-blocking, splits long messages automatically)."""
-    url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
-    async with aiohttp.ClientSession() as session:
-        for chunk in _split_message(text):
-            async with session.post(
-                url,
-                json={"chat_id": chat_id, "text": chunk,
-                      "parse_mode": "HTML", "disable_web_page_preview": True},
-                timeout=aiohttp.ClientTimeout(total=30),
-            ) as resp:
-                if not resp.ok:
-                    print(f"Telegram error {resp.status}: {await resp.text()}", file=sys.stderr)
-                resp.raise_for_status()
+async def send_telegram(bot, chat_id: str, text: str) -> None:
+    """Send text to Telegram, splitting long messages automatically."""
+    for chunk in _split_message(text):
+        await bot.send_message(
+            chat_id=chat_id,
+            text=chunk,
+            parse_mode="HTML",
+            disable_web_page_preview=True,
+        )
 
 
-async def send_telegram_photo(bot_token: str, chat_id: str, photo_buf, caption: str = "") -> None:
-    """Send a PNG BytesIO as a photo via Telegram Bot API (multipart/form-data)."""
-    url = f"https://api.telegram.org/bot{bot_token}/sendPhoto"
-    async with aiohttp.ClientSession() as session:
-        data = aiohttp.FormData()
-        data.add_field("chat_id", chat_id)
-        data.add_field("parse_mode", "HTML")
-        if caption:
-            data.add_field("caption", caption[:1024])
-        data.add_field("photo", photo_buf, filename="chart.png", content_type="image/png")
-        async with session.post(url, data=data, timeout=aiohttp.ClientTimeout(total=60)) as resp:
-            if not resp.ok:
-                print(f"Telegram photo error {resp.status}: {await resp.text()}", file=sys.stderr)
-            resp.raise_for_status()
+async def send_telegram_photo(bot, chat_id: str, photo_buf, caption: str = "") -> None:
+    """Send a PNG BytesIO as a photo."""
+    await bot.send_photo(
+        chat_id=chat_id,
+        photo=photo_buf,
+        caption=caption[:1024] if caption else None,
+        parse_mode="HTML",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -102,7 +90,7 @@ async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     try:
         await update.message.reply_text("⏳ Подготавливаю отчет...")
         report_text = await generate_report(client, cfg)
-        await send_telegram(context.bot.token, str(update.effective_chat.id), report_text)
+        await send_telegram(context.bot, str(update.effective_chat.id), report_text)
         print("[OK] /report sent")
     except Exception as exc:
         print(f"[ERROR] /report: {exc}", file=sys.stderr)
@@ -125,8 +113,8 @@ async def dynamics_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             dd_cfg = cfg.get("daily_dynamics") or {}
             phrase = dd_cfg.get("phrase", "тс пиот")
             caption = f"📊 Динамика за 30 дней — {phrase}"
-            await send_telegram_photo(context.bot.token, chat_id, chart, caption=caption)
-        await send_telegram(context.bot.token, chat_id, report)
+            await send_telegram_photo(context.bot, chat_id, chart, caption=caption)
+        await send_telegram(context.bot, chat_id, report)
         print("[OK] /dynamics sent")
     except Exception as exc:
         print(f"[ERROR] /dynamics: {exc}", file=sys.stderr)
@@ -142,7 +130,7 @@ async def _scheduled_wordstat_report(context: ContextTypes.DEFAULT_TYPE) -> None
         return
     try:
         print(f"[{datetime.utcnow().strftime('%H:%M:%S')}] Sending scheduled Wordstat report…")
-        await send_telegram(context.bot.token, chat_id, await generate_report(client, cfg))
+        await send_telegram(context.bot, chat_id, await generate_report(client, cfg))
         print("Done ✓")
     except Exception as exc:
         print(f"ERROR in scheduled Wordstat report: {exc}", file=sys.stderr)
@@ -162,8 +150,8 @@ async def _scheduled_daily_dynamics(context: ContextTypes.DEFAULT_TYPE) -> None:
             dd_cfg = cfg.get("daily_dynamics") or {}
             phrase = dd_cfg.get("phrase", "тс пиот")
             caption = f"📊 Динамика за 30 дней — {phrase}"
-            await send_telegram_photo(context.bot.token, chat_id, chart, caption=caption)
-        await send_telegram(context.bot.token, chat_id, report)
+            await send_telegram_photo(context.bot, chat_id, chart, caption=caption)
+        await send_telegram(context.bot, chat_id, report)
         print("Done ✓")
     except Exception as exc:
         print(f"ERROR in scheduled daily compact report: {exc}", file=sys.stderr)
@@ -345,7 +333,7 @@ async def channels_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         await update.message.reply_text("⏳ Анализирую каналы...")
         summary = await _build_channel_summary(monitor, cfg)
         for chunk in _split_message(summary):
-            await send_telegram(context.bot.token, str(update.effective_chat.id), chunk)
+            await send_telegram(context.bot, str(update.effective_chat.id), chunk)
         print("[OK] /channels sent")
     except Exception as exc:
         print(f"[ERROR] /channels: {exc}", file=sys.stderr)
@@ -365,7 +353,7 @@ async def _scheduled_channel_summary(context: ContextTypes.DEFAULT_TYPE) -> None
         print(f"[{datetime.utcnow().strftime('%H:%M:%S')}] Sending scheduled channel summary…")
         summary = await _build_channel_summary(monitor, cfg)
         for chunk in _split_message(summary):
-            await send_telegram(context.bot.token, chat_id, chunk)
+            await send_telegram(context.bot, chat_id, chunk)
         print("Done ✓")
     except Exception as exc:
         print(f"ERROR in scheduled channel summary: {exc}", file=sys.stderr)
@@ -416,14 +404,14 @@ async def today_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             report, chart = result
             if chart is not None:
                 await send_telegram_photo(
-                    context.bot.token, chat_id, chart,
+                    context.bot, chat_id, chart,
                     caption=f"📊 Динамика за 30 дней — {phrase}",
                 )
-            await send_telegram(context.bot.token, chat_id, report)
+            await send_telegram(context.bot, chat_id, report)
         else:
             # Channel summary is plain text
             for chunk in _split_message(result):
-                await send_telegram(context.bot.token, chat_id, chunk)
+                await send_telegram(context.bot, chat_id, chunk)
     print("[OK] /today sent")
 
 
