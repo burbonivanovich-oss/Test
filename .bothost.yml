@@ -1,2 +1,2 @@
 python_version: "3.11"
-entrypoint: "python main.py"
+entrypoint: "python3 main.py"
