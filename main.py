@@ -93,6 +93,24 @@ async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await update.message.reply_text(f"❌ Ошибка: {escape_html(str(exc))}")
 
 
+async def dynamics_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /dynamics — send daily compact Wordstat report on demand."""
+    print(f"[COMMAND] /dynamics from user {update.effective_user.id}")
+    client: WordstatClient = context.bot_data.get("wordstat_client")
+    cfg: dict = context.bot_data.get("config")
+    if not client or not cfg:
+        await update.message.reply_text("❌ Бот не инициализирован. Попробуйте позже.")
+        return
+    try:
+        await update.message.reply_text("⏳ Подготавливаю ежедневную сводку...")
+        report = await generate_daily_compact_report(client, cfg)
+        await send_telegram(context.bot.token, str(update.effective_chat.id), report)
+        print("[OK] /dynamics sent")
+    except Exception as exc:
+        print(f"[ERROR] /dynamics: {exc}", file=sys.stderr)
+        await update.message.reply_text(f"❌ Ошибка: {escape_html(str(exc))}")
+
+
 async def _scheduled_wordstat_report(context: ContextTypes.DEFAULT_TYPE) -> None:
     """Scheduled job — send Wordstat digest to the configured chat."""
     client = context.bot_data.get("wordstat_client")
@@ -127,6 +145,7 @@ async def _scheduled_daily_dynamics(context: ContextTypes.DEFAULT_TYPE) -> None:
 def setup_wordstat_feature(app: Application, client: WordstatClient, cfg: dict) -> None:
     """Register all Wordstat handlers, the weekly scheduled digest, and daily dynamics."""
     app.add_handler(CommandHandler("report", report_command))
+    app.add_handler(CommandHandler("dynamics", dynamics_command))
 
     # Weekly Wordstat digest (Thursday by default)
     sched = cfg.get("schedule", {})
@@ -300,6 +319,31 @@ def setup_channel_feature(app: Application, monitor, cfg: dict) -> None:
     print(f"[Channels] Scheduled digest: daily at {hour:02d}:{minute:02d} UTC")
 
 
+async def today_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /today — send daily dynamics + channel mentions together."""
+    print(f"[COMMAND] /today from user {update.effective_user.id}")
+    client: WordstatClient = context.bot_data.get("wordstat_client")
+    monitor = context.bot_data.get("channel_monitor")
+    cfg: dict = context.bot_data.get("config")
+    if not client or not cfg:
+        await update.message.reply_text("❌ Бот не инициализирован. Попробуйте позже.")
+        return
+    await update.message.reply_text("⏳ Собираю сводку за сегодня...")
+    tasks = [generate_daily_compact_report(client, cfg)]
+    if monitor and cfg.get("channel_monitor", {}).get("enabled"):
+        tasks.append(_build_channel_summary(monitor, cfg))
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    chat_id = str(update.effective_chat.id)
+    for result in results:
+        if isinstance(result, Exception):
+            print(f"[ERROR] /today partial: {result}", file=sys.stderr)
+            await update.message.reply_text(f"❌ Ошибка: {escape_html(str(result))}")
+        else:
+            for chunk in _split_message(result):
+                await send_telegram(context.bot.token, chat_id, chunk)
+    print("[OK] /today sent")
+
+
 # ---------------------------------------------------------------------------
 # General commands
 # ---------------------------------------------------------------------------
@@ -307,8 +351,10 @@ def setup_channel_feature(app: Application, monitor, cfg: dict) -> None:
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         "👋 Привет! Я — Wordstat + мониторинг каналов бот.\n\n"
-        "/report — отчёт из Wordstat\n"
-        "/channels — упоминания в Telegram-каналах\n"
+        "/today — сводка за сегодня (поиск + СМИ)\n"
+        "/dynamics — ежедневная сводка Wordstat\n"
+        "/channels — упоминания в СМИ\n"
+        "/report — полный Wordstat-отчёт\n"
         "/info — что делает этот бот\n"
         "/help — справка"
     )
@@ -323,8 +369,10 @@ async def info_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         "📖 <b>Доступные команды:</b>\n\n"
-        "/report — получить Wordstat-отчёт сейчас\n"
-        "/channels — мониторинг Telegram-каналов сейчас\n"
+        "/today — сводка за сегодня: поисковая динамика + упоминания в СМИ\n"
+        "/dynamics — ежедневная сводка Wordstat (топ запросов + динамика)\n"
+        "/channels — упоминания в Telegram-каналах и RSS\n"
+        "/report — полный еженедельный Wordstat-отчёт\n"
         "/info — что делает этот бот\n"
         "/start — приветствие\n"
         "/help — эта справка",
@@ -382,6 +430,7 @@ async def main() -> None:
     # General commands
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("info", info_command))
+    app.add_handler(CommandHandler("today", today_command))
     app.add_handler(CommandHandler("help", help_command))
 
     # Feature 1: Wordstat
