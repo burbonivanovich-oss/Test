@@ -142,29 +142,45 @@ async def _scheduled_wordstat_report(context: ContextTypes.DEFAULT_TYPE) -> None
         print(f"ERROR in scheduled Wordstat report: {exc}", file=sys.stderr)
 
 
-async def _scheduled_daily_dynamics(context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Scheduled job — send compact daily digest (top queries + daily dynamics)."""
+async def _scheduled_today_digest(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Scheduled job — combined daily digest: Wordstat dynamics + channel monitoring."""
     client = context.bot_data.get("wordstat_client")
+    monitor = context.bot_data.get("channel_monitor")
     cfg = context.bot_data.get("config")
     chat_id = context.bot_data.get("chat_id")
     if not client or not cfg or not chat_id:
         return
     try:
-        print(f"[{datetime.utcnow().strftime('%H:%M:%S')}] Sending daily compact report…")
-        report, chart = await generate_daily_compact_report(client, cfg)
-        if chart is not None:
-            dd_cfg = cfg.get("daily_dynamics") or {}
-            phrase = dd_cfg.get("phrase", "тс пиот")
-            caption = f"📊 Динамика за 30 дней — {phrase}"
-            await send_telegram_photo(context.bot, chat_id, chart, caption=caption)
-        await send_telegram(context.bot, chat_id, report)
+        print(f"[{datetime.utcnow().strftime('%H:%M:%S')}] Sending daily digest…")
+        tasks: list = [generate_daily_compact_report(client, cfg)]
+        if monitor and cfg.get("channel_monitor", {}).get("enabled"):
+            tasks.append(_build_channel_summary(monitor, cfg))
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        dd_cfg = cfg.get("daily_dynamics") or {}
+        phrase = dd_cfg.get("phrase", "тс пиот")
+
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                print(f"ERROR in daily digest part {i}: {result}", file=sys.stderr)
+            elif i == 0:
+                report, chart = result
+                if chart is not None:
+                    await send_telegram_photo(
+                        context.bot, chat_id, chart,
+                        caption=f"📊 Динамика за 30 дней — {phrase}",
+                    )
+                await send_telegram(context.bot, chat_id, report)
+            else:
+                for chunk in _split_message(result):
+                    await send_telegram(context.bot, chat_id, chunk)
         print("Done ✓")
     except Exception as exc:
-        print(f"ERROR in scheduled daily compact report: {exc}", file=sys.stderr)
+        print(f"ERROR in scheduled daily digest: {exc}", file=sys.stderr)
 
 
 def setup_wordstat_feature(app: Application, client: WordstatClient, cfg: dict) -> None:
-    """Register all Wordstat handlers, the weekly scheduled digest, and daily dynamics."""
+    """Register Wordstat command handlers and the weekly scheduled digest."""
     app.add_handler(CommandHandler("report", report_command))
     app.add_handler(CommandHandler("dynamics", dynamics_command))
 
@@ -180,19 +196,6 @@ def setup_wordstat_feature(app: Application, client: WordstatClient, cfg: dict) 
         name="wordstat_digest",
     )
     print(f"[Wordstat] Scheduled digest: weekday={weekday} at {hour:02d}:{minute:02d} UTC")
-
-    # Daily dynamics report
-    dd_cfg = cfg.get("daily_dynamics", {})
-    if dd_cfg:
-        dd_sched = dd_cfg.get("schedule", {})
-        dd_hour = int(dd_sched.get("hour", 4))
-        dd_minute = int(dd_sched.get("minute", 30))
-        app.job_queue.run_daily(
-            _scheduled_daily_dynamics,
-            time=datetime.min.replace(hour=dd_hour, minute=dd_minute).time(),
-            name="daily_dynamics_digest",
-        )
-        print(f"[DailyDynamics] Scheduled daily at {dd_hour:02d}:{dd_minute:02d} UTC")
 
 
 # ---------------------------------------------------------------------------
@@ -366,19 +369,8 @@ async def _scheduled_channel_summary(context: ContextTypes.DEFAULT_TYPE) -> None
 
 
 def setup_channel_feature(app: Application, monitor, cfg: dict) -> None:
-    """Register all channel monitoring handlers and the daily scheduled digest."""
+    """Register channel monitoring command handler."""
     app.add_handler(CommandHandler("channels", channels_command))
-
-    chan_cfg = cfg.get("channel_monitor", {})
-    chan_sched = chan_cfg.get("schedule", {})
-    hour = int(chan_sched.get("hour", 4))
-    minute = int(chan_sched.get("minute", 0))
-    app.job_queue.run_daily(
-        _scheduled_channel_summary,
-        time=datetime.min.replace(hour=hour, minute=minute).time(),
-        name="channel_digest",
-    )
-    print(f"[Channels] Scheduled digest: daily at {hour:02d}:{minute:02d} UTC")
 
 
 async def today_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -585,6 +577,17 @@ async def main() -> None:
     app.bot_data["channel_monitor"] = channel_monitor
     if channel_monitor:
         setup_channel_feature(app, channel_monitor, cfg)
+
+    # Combined daily digest: Wordstat dynamics + channel monitoring
+    dd_sched = cfg.get("daily_dynamics", {}).get("schedule", {})
+    dd_hour = int(dd_sched.get("hour", 4))
+    dd_minute = int(dd_sched.get("minute", 20))
+    app.job_queue.run_daily(
+        _scheduled_today_digest,
+        time=datetime.min.replace(hour=dd_hour, minute=dd_minute).time(),
+        name="daily_digest",
+    )
+    print(f"[Daily] Scheduled combined digest: daily at {dd_hour:02d}:{dd_minute:02d} UTC")
 
     # --- Start polling ---
     print("Bot is listening for commands…")
