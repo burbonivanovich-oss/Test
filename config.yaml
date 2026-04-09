@@ -116,9 +116,6 @@ channel_monitor:
     - name: "Коммерсант"
       username: "@kommersant"
 
-    - name: "СБИС"
-      username: "@sbis_news"
-
     - name: "АТОЛ"
       username: "@tensor_saby"
 
@@ -144,7 +141,6 @@ channel_monitor:
   keywords:
     - "тс пиот"
     - "ТС ПИОТ"
-    - "Маркет"
 
   # Time window for scanning messages
   hours_lookback: 36

@@ -207,7 +207,11 @@ def process_cluster(client: WordstatClient, cluster: dict) -> list[str]:
 
 def build_analytics_summary(client: WordstatClient, analytics: list[dict],
                              data_ready_weekday: int = 3) -> list[str]:
-    """Build weekly analytics summary comparing current week vs previous week."""
+    """Build weekly analytics summary comparing current week vs previous week.
+
+    Auto-fallback: if the most recent week returns all zeros (data not yet published),
+    transparently shifts one week back and notes it in the header.
+    """
     today = date.today()
     days_since_sunday = (today.weekday() + 1) % 7
     last_sunday = today - timedelta(days=days_since_sunday)
@@ -219,10 +223,13 @@ def build_analytics_summary(client: WordstatClient, analytics: list[dict],
 
     week_monday = last_sunday - timedelta(days=6)
     week_label = f"{week_monday.strftime('%d.%m.%Y')} \u2013 {last_sunday.strftime('%d.%m.%Y')}"
-    from_date = (prev_sunday - timedelta(days=6)).isoformat()
+    # Fetch 3 weeks so we can fall back one week if current data isn't ready yet
+    from_date = (prev_sunday - timedelta(days=6 + 7)).isoformat()
     to_date = last_sunday.isoformat()
 
-    lines: list[str] = [f"📋 <b>Сводка за неделю {escape_html(week_label)}</b>", ""]
+    # ── First pass: collect raw data ──────────────────────────────────────────
+    groups_raw: list[tuple] = []  # (name, phrase_rows, errors, curr_total, prev_total)
+    global_curr = global_prev = 0
 
     for group in analytics:
         name = group.get("name", "Группа")
@@ -231,24 +238,50 @@ def build_analytics_summary(client: WordstatClient, analytics: list[dict],
         devices = group.get("devices", ["all"])
         current_total = prev_total = 0
         errors: list[str] = []
+        phrase_rows: list[tuple[str, int, int, int]] = []  # (phrase, curr, prev, prev2)
 
-        phrase_rows: list[tuple[str, int, int]] = []
         for phrase in phrases:
             try:
                 items = client.dynamics(phrase, period="weekly", from_date=from_date,
                                         to_date=to_date, regions=regions, devices=devices)
-                curr = prev = 0
-                if len(items) >= 2:
-                    prev = items[-2].get("count", 0)
-                    curr = items[-1].get("count", 0)
-                prev_total += prev
+                curr  = items[-1].get("count", 0) if len(items) >= 1 else 0
+                prev  = items[-2].get("count", 0) if len(items) >= 2 else 0
+                prev2 = items[-3].get("count", 0) if len(items) >= 3 else 0
                 current_total += curr
-                phrase_rows.append((phrase, curr, prev))
+                prev_total += prev
+                phrase_rows.append((phrase, curr, prev, prev2))
             except requests.HTTPError as exc:
                 errors.append(f"  ❌ Ошибка API для «{escape_html(phrase)}»: {escape_html(str(exc))}")
+                phrase_rows.append((phrase, 0, 0, 0))
             except Exception as exc:  # noqa: BLE001
                 errors.append(f"  ❌ Ошибка для «{escape_html(phrase)}»: {escape_html(str(exc))}")
+                phrase_rows.append((phrase, 0, 0, 0))
 
+        global_curr += current_total
+        global_prev += prev_total
+        groups_raw.append((name, phrase_rows, errors, current_total, prev_total))
+
+    # ── Auto-fallback: shift one week if current data not yet published ────────
+    fallback = global_curr == 0 and global_prev > 0
+    if fallback:
+        fb_monday = week_monday - timedelta(weeks=1)
+        fb_sunday = last_sunday - timedelta(weeks=1)
+        week_label = (
+            f"{fb_monday.strftime('%d.%m.%Y')} \u2013 {fb_sunday.strftime('%d.%m.%Y')}"
+            " \u26a0\ufe0f (данные за текущую неделю ещё не готовы)"
+        )
+        shifted: list[tuple] = []
+        for name, phrase_rows, errors, _, _ in groups_raw:
+            new_rows = [(ph, p, pp2, 0) for ph, _, p, pp2 in phrase_rows]
+            new_curr = sum(p for _, p, _, _ in new_rows)
+            new_prev = sum(pp2 for _, _, pp2, _ in new_rows)
+            shifted.append((name, new_rows, errors, new_curr, new_prev))
+        groups_raw = shifted
+
+    # ── Render ────────────────────────────────────────────────────────────────
+    lines: list[str] = [f"📋 <b>Сводка за неделю {escape_html(week_label)}</b>", ""]
+
+    for name, phrase_rows, errors, current_total, prev_total in groups_raw:
         delta = current_total - prev_total
         if prev_total:
             pct = delta / prev_total * 100
@@ -258,7 +291,7 @@ def build_analytics_summary(client: WordstatClient, analytics: list[dict],
             change_str = "н/д"
 
         lines.append(f"<b>{escape_html(name)}:</b>")
-        for ph, curr, prev in phrase_rows:
+        for ph, curr, prev, _ in phrase_rows:
             if prev:
                 ph_pct = (curr - prev) / prev * 100
                 ph_arrow = "↑" if ph_pct >= 0 else "↓"
@@ -266,10 +299,14 @@ def build_analytics_summary(client: WordstatClient, analytics: list[dict],
                 ph_change = f"{ph_arrow} {ph_sign}{ph_pct:.1f}%"
             else:
                 ph_change = "н/д"
-            lines.append(f"  {escape_html(ph)}: {_fmt_number(curr)} (прош. {_fmt_number(prev)}) {escape_html(ph_change)}")
+            lines.append(
+                f"  {escape_html(ph)}: {_fmt_number(curr)} "
+                f"(прош. {_fmt_number(prev)}) {escape_html(ph_change)}"
+            )
         lines += errors
         lines.append(
-            f"  <i>Итого: {_fmt_number(current_total)}  прошлая {_fmt_number(prev_total)}  {escape_html(change_str)}</i>"
+            f"  <i>Итого: {_fmt_number(current_total)}  "
+            f"прошлая {_fmt_number(prev_total)}  {escape_html(change_str)}</i>"
         )
         lines.append("")
 
