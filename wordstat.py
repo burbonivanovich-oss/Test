@@ -6,6 +6,8 @@ Imported by main.py to power the /report command and scheduled digests.
 """
 
 import asyncio
+import os
+import sys
 from datetime import date, timedelta
 
 import requests
@@ -48,6 +50,18 @@ class WordstatClient:
             "Content-Type": "application/json;charset=utf-8",
         })
         self.base_url = base_url.rstrip("/")
+
+        # Emergency override: Yandex sometimes serves a cert whose CN doesn't
+        # match api.wordstat.yandex.net. When that happens, set this env var
+        # to keep the bot running until they fix it. Default is strict TLS.
+        if os.environ.get("WORDSTAT_INSECURE_TLS") == "1":
+            self.session.verify = False
+            import urllib3
+            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+            print(
+                "⚠️  WORDSTAT_INSECURE_TLS=1 — TLS verification disabled for Wordstat",
+                file=sys.stderr,
+            )
 
     def _post(self, endpoint: str, payload: dict) -> dict:
         url = f"{self.base_url}{endpoint}"
