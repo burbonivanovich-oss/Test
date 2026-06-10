@@ -190,7 +190,8 @@ pip install -r requirements.txt
 # 2. Отредактируйте config.yaml (channels, keywords)
 
 # 3. Установите переменные окружения
-export WORDSTAT_OAUTH_TOKEN="your_token"
+export YC_API_KEY="your_yandex_cloud_api_key"
+export YC_FOLDER_ID="your_yandex_cloud_folder_id"
 export TELEGRAM_BOT_TOKEN="your_bot_token"
 export TELEGRAM_CHAT_ID="-1001234567890"
 
@@ -207,7 +208,8 @@ export TELETHON_API_HASH=da6a76c...
 export TELETHON_SESSION_STRING=1aBcD...
 
 # 2. Установите остальное
-export WORDSTAT_OAUTH_TOKEN="..."
+export YC_API_KEY="..."
+export YC_FOLDER_ID="..."
 export TELEGRAM_BOT_TOKEN="..."
 export TELEGRAM_CHAT_ID=...
 

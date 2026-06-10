@@ -6,7 +6,7 @@
 #   3. Sends combined daily reports
 #
 # Credentials stored in environment variables (see .env or bothost.ru):
-#   - WORDSTAT_OAUTH_TOKEN (for Wordstat API)
+#   - YC_API_KEY, YC_FOLDER_ID (for Yandex Cloud Search API v2 — Wordstat)
 #   - TELEGRAM_BOT_TOKEN (for Telegram bot)
 #   - TELEGRAM_CHAT_ID (where to send reports)
 #   - TELETHON_API_ID, TELETHON_API_HASH, TELETHON_SESSION_STRING (for channel monitoring)
@@ -21,8 +21,11 @@ schedule:
   minute: 15
 
 wordstat:
-  oauth_token: ""          # or set WORDSTAT_OAUTH_TOKEN env var
-  base_url: "https://api.wordstat.yandex.net"
+  # Yandex Cloud Search API v2 — Wordstat (migrated from api.wordstat.yandex.net).
+  # Credentials live in env vars: YC_API_KEY, YC_FOLDER_ID.
+  api_key: ""              # or set YC_API_KEY env var
+  folder_id: ""            # or set YC_FOLDER_ID env var
+  base_url: "https://searchapi.api.cloud.yandex.net/v2/wordstat"
   # Wordstat weekly data is typically published Wed/Thu.
   data_ready_weekday: 3    # 3 = Thursday
 
@@ -117,19 +120,19 @@ channel_monitor:
       username: "@kommersant"
 
     - name: "InfoStart"
-      username: "@infostart_news"
+      username: "@infostart_enterprise"
 
-    - name: "СБИС"
-      username: "@sbis_news"
+    - name: "Тензор (СБИС)"
+      username: "@tensor"
 
-    - name: "Честный знак"
-      username: "@chestnyznak_official"
+    - name: "Честный ЗНАК breaking news"
+      username: "@crptbreaking"
 
     - name: "АТОЛ"
       username: "@atol_online"
 
     - name: "МойСклад"
-      username: "@moysklad_news"
+      username: "@moysklad"
 
     - name: "EcomCrew"
       username: "@ecomcrew"

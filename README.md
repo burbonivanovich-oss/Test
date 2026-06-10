@@ -25,8 +25,10 @@
 
 ### 1. Получить credentials
 
-**Для Wordstat:**
-- Получи OAuth token на https://yandex.ru/dev/wordstat/
+**Для Wordstat (Yandex Cloud Search API v2):**
+- Зарегистрируйся в https://console.yandex.cloud/
+- Создай сервисный аккаунт, дай ему роль на Search API, сгенерируй API Key
+- Запиши `YC_API_KEY` и `YC_FOLDER_ID`
 
 **Для Telegram Channel Monitor:**
 - Получи API ID/Hash на https://my.telegram.org/apps
@@ -45,7 +47,8 @@
 
 ```bash
 cat > .env << 'EOF'
-WORDSTAT_OAUTH_TOKEN="your_wordstat_token"
+YC_API_KEY="your_yandex_cloud_api_key"
+YC_FOLDER_ID="your_yandex_cloud_folder_id"
 TELETHON_API_ID=37195258
 TELETHON_API_HASH=da6a76c5c4884bceac2fa904ab029b02
 TELETHON_SESSION_STRING="1ApWapz..."
@@ -95,8 +98,9 @@ python3 wordstat_bot.py --config config.yaml
 
 ```yaml
 wordstat:
-  oauth_token: ""
-  base_url: "https://api.wordstat.yandex.net"
+  api_key: ""
+  folder_id: ""
+  base_url: "https://searchapi.api.cloud.yandex.net/v2/wordstat"
 
 analytics:
   - name: "Информационные запросы"
@@ -167,7 +171,8 @@ python3 wordstat_bot.py --config my_config.yaml
    git checkout production/wordstat-telegram-full
    ```
 3. Добавь переменные окружения:
-   - `WORDSTAT_OAUTH_TOKEN`
+   - `YC_API_KEY`
+   - `YC_FOLDER_ID`
    - `TELETHON_API_ID`
    - `TELETHON_API_HASH`
    - `TELETHON_SESSION_STRING`
@@ -184,12 +189,14 @@ python3 wordstat_bot.py --config my_config.yaml
 ### Wordstat не работает
 
 ```
-ERROR: WORDSTAT_OAUTH_TOKEN not set
+ERROR: YC_API_KEY not set
+ERROR: YC_FOLDER_ID not set
 ```
 
-Решение: Убедись что переменная окружения установлена:
+Решение: Убедись, что переменные окружения установлены:
 ```bash
-export WORDSTAT_OAUTH_TOKEN="your_token"
+export YC_API_KEY="your_api_key"
+export YC_FOLDER_ID="your_folder_id"
 ```
 
 ### Телеграм каналы не парсятся
@@ -248,17 +255,23 @@ ERROR: Missing Telethon credentials
 
 ---
 
-## 🚨 Аварийный режим Wordstat (TLS)
+## 🔄 Wordstat API — Yandex Cloud Search API v2
 
-Если в логах появляется `SSLError: Hostname mismatch, certificate is not valid for 'api.wordstat.yandex.net'` — это сбой на стороне Яндекса (сервер отдаёт чужой сертификат). Чтобы бот продолжал работать, пока его не починят:
+С весны 2026 Wordstat живёт в Yandex Cloud Search API v2. Старый endpoint `api.wordstat.yandex.net/v1/*` мёртв; OAuth-токен больше не нужен.
 
-```bash
-WORDSTAT_INSECURE_TLS=1
-```
+**Что понадобится:**
 
-Флаг отключает проверку TLS **только для Wordstat**. Когда Яндекс починит cert — уберите переменную окружения, код менять не нужно.
+1. Аккаунт в [Yandex Cloud](https://console.yandex.cloud/).
+2. Каталог (folder) — посмотреть его ID на главной странице консоли. Пример: `b1g123abc...`.
+3. Сервисный аккаунт с ролью на Search API → создать ему **API Key**. Пример: `AQVN...` (длинная строка).
 
-⚠️ При включённом флаге OAuth-токен Wordstat летит по соединению без проверки сертификата. Не оставляйте его включённым дольше необходимого.
+**Переменные окружения:**
+- `YC_API_KEY` — ключ сервисного аккаунта
+- `YC_FOLDER_ID` — ID каталога
+
+Базовый URL — `https://searchapi.api.cloud.yandex.net/v2/wordstat` (зашит в `config.yaml`, менять не надо).
+
+⚠️ Search API в Yandex Cloud, скорее всего, платный — перед использованием проверьте текущие тарифы.
 
 ---
 

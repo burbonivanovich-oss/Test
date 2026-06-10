@@ -3,11 +3,14 @@ Wordstat API client and report builder.
 
 Pure business logic — no Telegram code here.
 Imported by main.py to power the /report command and scheduled digests.
+
+API: Yandex Cloud Search API v2 — Wordstat
+  https://searchapi.api.cloud.yandex.net/v2/wordstat
+  Auth: Api-Key (Yandex Cloud service account key)
+  Every request requires folderId.
 """
 
 import asyncio
-import os
-import sys
 from datetime import date, timedelta
 
 import requests
@@ -42,28 +45,48 @@ def _default_from_date(period: str) -> str:
 # Wordstat API client
 # ---------------------------------------------------------------------------
 
+# Mapping from old period strings to Yandex Cloud enum values.
+_PERIOD_ENUM = {
+    "daily": "PERIOD_DAILY",
+    "weekly": "PERIOD_WEEKLY",
+    "monthly": "PERIOD_MONTHLY",
+}
+
+# Mapping from old device strings to Yandex Cloud enum values.
+_DEVICE_ENUM = {
+    "all": "DEVICE_ALL",
+    "desktop": "DEVICE_DESKTOP",
+    "mobile": "DEVICE_MOBILE",
+    "tablet": "DEVICE_TABLET",
+    "phone": "DEVICE_PHONE",
+}
+
+
+def _normalize_devices(devices: list[str] | None) -> list[str] | None:
+    if not devices:
+        return None
+    out = [_DEVICE_ENUM.get(d.lower(), d) for d in devices]
+    # When the only device is "all" we just omit the field — same as old behavior.
+    if out == ["DEVICE_ALL"]:
+        return None
+    return out
+
+
 class WordstatClient:
-    def __init__(self, oauth_token: str, base_url: str = "https://api.wordstat.yandex.net"):
+    """Yandex Cloud Search API v2 client for Wordstat."""
+
+    def __init__(self, api_key: str, folder_id: str,
+                 base_url: str = "https://searchapi.api.cloud.yandex.net/v2/wordstat"):
         self.session = requests.Session()
         self.session.headers.update({
-            "Authorization": f"Bearer {oauth_token}",
+            "Authorization": f"Api-Key {api_key}",
             "Content-Type": "application/json;charset=utf-8",
         })
         self.base_url = base_url.rstrip("/")
-
-        # Emergency override: Yandex sometimes serves a cert whose CN doesn't
-        # match api.wordstat.yandex.net. When that happens, set this env var
-        # to keep the bot running until they fix it. Default is strict TLS.
-        if os.environ.get("WORDSTAT_INSECURE_TLS") == "1":
-            self.session.verify = False
-            import urllib3
-            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-            print(
-                "⚠️  WORDSTAT_INSECURE_TLS=1 — TLS verification disabled for Wordstat",
-                file=sys.stderr,
-            )
+        self.folder_id = folder_id
 
     def _post(self, endpoint: str, payload: dict) -> dict:
+        payload = {"folderId": self.folder_id, **payload}
         url = f"{self.base_url}{endpoint}"
         resp = self.session.post(url, json=payload, timeout=30)
         if not resp.ok:
@@ -74,36 +97,39 @@ class WordstatClient:
             )
         return resp.json()
 
-    @staticmethod
-    def _fmt_phrase(phrase: str) -> str:
-        return "+".join(phrase.strip().split())
-
     def top_requests(self, phrase: str, regions: list[int] = None,
                      devices: list[str] = None) -> list[dict]:
-        payload: dict = {"phrase": self._fmt_phrase(phrase)}
+        payload: dict = {"phrase": phrase.strip()}
         if regions:
-            payload["regions"] = regions
-        if devices and devices != ["all"]:
-            payload["devices"] = devices
-        return self._post("/v1/topRequests", payload).get("topRequests", [])
+            payload["regions"] = [str(r) for r in regions]
+        dev = _normalize_devices(devices)
+        if dev:
+            payload["devices"] = dev
+        return self._post("/topRequests", payload).get("topRequests", [])
 
     def dynamics(self, phrase: str, period: str, from_date: str, to_date: str = None,
                  regions: list[int] = None, devices: list[str] = None) -> list[dict]:
-        payload: dict = {"phrase": self._fmt_phrase(phrase), "period": period, "fromDate": from_date}
+        payload: dict = {
+            "phrase": phrase.strip(),
+            "period": _PERIOD_ENUM.get(period.lower(), period),
+            "fromDate": from_date,
+        }
         if to_date:
             payload["toDate"] = to_date
         if regions:
-            payload["regions"] = regions
-        if devices and devices != ["all"]:
-            payload["devices"] = devices
-        return self._post("/v1/dynamics", payload).get("dynamics", [])
+            payload["regions"] = [str(r) for r in regions]
+        dev = _normalize_devices(devices)
+        if dev:
+            payload["devices"] = dev
+        return self._post("/dynamics", payload).get("dynamics", [])
 
     def regions(self, phrase: str, region_type: str = "all",
                 devices: list[str] = None) -> list[dict]:
-        payload: dict = {"phrase": self._fmt_phrase(phrase), "regionType": region_type}
-        if devices and devices != ["all"]:
-            payload["devices"] = devices
-        return self._post("/v1/regions", payload).get("regions", [])
+        payload: dict = {"phrase": phrase.strip(), "regionType": region_type}
+        dev = _normalize_devices(devices)
+        if dev:
+            payload["devices"] = dev
+        return self._post("/regions", payload).get("regions", [])
 
 
 # ---------------------------------------------------------------------------
