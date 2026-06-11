@@ -29,6 +29,28 @@ def _fmt_number(n: int | float) -> str:
     return f"{int(n):,}".replace(",", "\u202f")  # narrow no-break space as thousands sep
 
 
+def _as_int(value) -> int:
+    """Coerce API counts (which the new Search API returns as strings) to int."""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _to_rfc3339(d: str) -> str:
+    """The new API expects RFC3339 timestamps. Accept 'YYYY-MM-DD' too."""
+    if not d or "T" in d:
+        return d
+    return f"{d}T00:00:00Z"
+
+
+def _date_only(d: str) -> str:
+    """Extract 'YYYY-MM-DD' from an RFC3339 timestamp (or pass through a plain date)."""
+    if not d:
+        return d
+    return d.split("T", 1)[0]
+
+
 def _default_from_date(period: str) -> str:
     today = date.today()
     if period == "monthly":
@@ -98,30 +120,43 @@ class WordstatClient:
         return resp.json()
 
     def top_requests(self, phrase: str, regions: list[int] = None,
-                     devices: list[str] = None) -> list[dict]:
-        payload: dict = {"phrase": phrase.strip()}
+                     devices: list[str] = None, num_phrases: int = 20) -> list[dict]:
+        payload: dict = {"phrase": phrase.strip(), "numPhrases": num_phrases}
         if regions:
             payload["regions"] = [str(r) for r in regions]
         dev = _normalize_devices(devices)
         if dev:
             payload["devices"] = dev
-        return self._post("/topRequests", payload).get("topRequests", [])
+        data = self._post("/topRequests", payload)
+        # New API returns {"results": [{"phrase","count"(str)}], "associations": [...], "totalCount"}
+        items = data.get("results") or data.get("topRequests") or []
+        return [{"phrase": it.get("phrase", ""), "count": _as_int(it.get("count"))} for it in items]
 
     def dynamics(self, phrase: str, period: str, from_date: str, to_date: str = None,
                  regions: list[int] = None, devices: list[str] = None) -> list[dict]:
         payload: dict = {
             "phrase": phrase.strip(),
             "period": _PERIOD_ENUM.get(period.lower(), period),
-            "fromDate": from_date,
+            "fromDate": _to_rfc3339(from_date),
         }
         if to_date:
-            payload["toDate"] = to_date
+            payload["toDate"] = _to_rfc3339(to_date)
         if regions:
             payload["regions"] = [str(r) for r in regions]
         dev = _normalize_devices(devices)
         if dev:
             payload["devices"] = dev
-        return self._post("/dynamics", payload).get("dynamics", [])
+        data = self._post("/dynamics", payload)
+        # New API returns {"results": [{"date"(RFC3339),"count"(str),"share"(float)}]}
+        items = data.get("results") or data.get("dynamics") or []
+        return [
+            {
+                "date": _date_only(it.get("date", "")),
+                "count": _as_int(it.get("count")),
+                "share": it.get("share", 0),
+            }
+            for it in items
+        ]
 
     def regions(self, phrase: str, region_type: str = "all",
                 devices: list[str] = None) -> list[dict]:
@@ -129,7 +164,12 @@ class WordstatClient:
         dev = _normalize_devices(devices)
         if dev:
             payload["devices"] = dev
-        return self._post("/regions", payload).get("regions", [])
+        data = self._post("/regions", payload)
+        items = data.get("results") or data.get("regions") or []
+        for it in items:
+            if "count" in it:
+                it["count"] = _as_int(it.get("count"))
+        return items
 
 
 # ---------------------------------------------------------------------------
