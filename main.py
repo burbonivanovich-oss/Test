@@ -531,12 +531,16 @@ async def main() -> None:
     wc_cfg = cfg.get("wordstat", {})
     tg_cfg = cfg.get("telegram", {})
 
-    oauth_token = os.environ.get("WORDSTAT_OAUTH_TOKEN") or wc_cfg.get("oauth_token", "")
+    api_key = os.environ.get("YC_API_KEY") or wc_cfg.get("api_key", "")
+    folder_id = os.environ.get("YC_FOLDER_ID") or wc_cfg.get("folder_id", "")
     bot_token = os.environ.get("TELEGRAM_BOT_TOKEN") or tg_cfg.get("bot_token", "")
     chat_id = os.environ.get("TELEGRAM_CHAT_ID") or str(tg_cfg.get("chat_id", ""))
 
-    if not oauth_token:
-        print("ERROR: WORDSTAT_OAUTH_TOKEN not set.", file=sys.stderr)
+    if not api_key:
+        print("ERROR: YC_API_KEY not set (Yandex Cloud API key for Search API).", file=sys.stderr)
+        sys.exit(1)
+    if not folder_id:
+        print("ERROR: YC_FOLDER_ID not set (Yandex Cloud folder id).", file=sys.stderr)
         sys.exit(1)
     if not args.dry_run and not bot_token:
         print("ERROR: TELEGRAM_BOT_TOKEN not set.", file=sys.stderr)
@@ -546,8 +550,9 @@ async def main() -> None:
         sys.exit(1)
 
     client = WordstatClient(
-        oauth_token=oauth_token,
-        base_url=wc_cfg.get("base_url", "https://api.wordstat.yandex.net"),
+        api_key=api_key,
+        folder_id=folder_id,
+        base_url=wc_cfg.get("base_url", "https://searchapi.api.cloud.yandex.net/v2/wordstat"),
     )
 
     # Dry-run: just print the report and exit

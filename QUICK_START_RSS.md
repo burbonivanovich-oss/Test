@@ -19,7 +19,8 @@ python test_rss_monitor.py
 ### 3️⃣ Запустите полный бот
 
 ```bash
-export WORDSTAT_OAUTH_TOKEN="your_wordstat_token"
+export YC_API_KEY="your_yandex_cloud_api_key"
+export YC_FOLDER_ID="your_yandex_cloud_folder_id"
 export TELEGRAM_BOT_TOKEN="your_bot_token"
 export TELEGRAM_CHAT_ID="-1001234567890"
 
