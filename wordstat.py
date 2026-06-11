@@ -29,6 +29,14 @@ def _fmt_number(n: int | float) -> str:
     return f"{int(n):,}".replace(",", "\u202f")  # narrow no-break space as thousands sep
 
 
+def _as_int(value) -> int:
+    """Coerce API counts (which the new Search API returns as strings) to int."""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
 def _default_from_date(period: str) -> str:
     today = date.today()
     if period == "monthly":
@@ -98,14 +106,17 @@ class WordstatClient:
         return resp.json()
 
     def top_requests(self, phrase: str, regions: list[int] = None,
-                     devices: list[str] = None) -> list[dict]:
-        payload: dict = {"phrase": phrase.strip()}
+                     devices: list[str] = None, num_phrases: int = 20) -> list[dict]:
+        payload: dict = {"phrase": phrase.strip(), "numPhrases": num_phrases}
         if regions:
             payload["regions"] = [str(r) for r in regions]
         dev = _normalize_devices(devices)
         if dev:
             payload["devices"] = dev
-        return self._post("/topRequests", payload).get("topRequests", [])
+        data = self._post("/topRequests", payload)
+        # New API returns {"results": [{"phrase","count"(str)}], "associations": [...], "totalCount"}
+        items = data.get("results") or data.get("topRequests") or []
+        return [{"phrase": it.get("phrase", ""), "count": _as_int(it.get("count"))} for it in items]
 
     def dynamics(self, phrase: str, period: str, from_date: str, to_date: str = None,
                  regions: list[int] = None, devices: list[str] = None) -> list[dict]:
