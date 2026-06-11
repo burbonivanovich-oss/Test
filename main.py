@@ -549,6 +549,16 @@ async def main() -> None:
         print("ERROR: No clusters defined in config.", file=sys.stderr)
         sys.exit(1)
 
+    # Diagnostic: confirm WHAT the bot actually reads from the environment.
+    # The API key is never printed in full — only its length and a short tail —
+    # so we can compare against the value tested with curl without leaking it.
+    print(
+        f"[WORDSTAT] folder_id={folder_id!r} "
+        f"api_key_len={len(api_key)} api_key_tail=…{api_key[-4:] if len(api_key) >= 4 else ''} "
+        f"base_url={wc_cfg.get('base_url', 'https://searchapi.api.cloud.yandex.net/v2/wordstat')}",
+        file=sys.stderr,
+    )
+
     client = WordstatClient(
         api_key=api_key,
         folder_id=folder_id,
